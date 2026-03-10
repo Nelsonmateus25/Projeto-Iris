@@ -438,7 +438,7 @@ st.set_page_config(
 )
 
 st.markdown(CUSTOM_CSS, unsafe_allow_html=True)
-st.title("Analisador de Decretos (Modo Local)")
+st.title("Analisador de Decretos")
 
 # --- Seção 1: Upload ---
 st.header("1. Enviar Arquivos")
