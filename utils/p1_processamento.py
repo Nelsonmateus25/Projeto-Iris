@@ -17,10 +17,13 @@ import tempfile
 import json
 import time
 import locale
-from datetime import datetime
+import logging
 from typing import List, Optional, Set, Tuple, Dict, Any
 import fitz  # PyMuPDF (para extração de imagem)
 import google.generativeai as genai
+from utils.formatters import formatar_valor, formatar_data
+
+logger = logging.getLogger(__name__)
 
 # ==============================================================================
 # CLASSE DE PROCESSAMENTO P1
@@ -44,7 +47,7 @@ class P1Processor:
         try:
             locale.setlocale(locale.LC_TIME, 'pt_BR.UTF-8')
         except locale.Error:
-            print("Aviso: Locale 'pt_BR.UTF-8' não encontrado. Usando locale padrão.")
+            logger.warning("Locale 'pt_BR.UTF-8' não encontrado. Usando locale padrão.")
 
         # --- PROMPTS Específicos do Padrão 1 ---
         # (Prompts originais do P1Processor mantidos)
@@ -129,22 +132,6 @@ class P1Processor:
 
     # --- Métodos de Formatação e Chamada de API ---
 
-    def _formatar_valor(self, valor_str: str | None) -> str | None:
-        if valor_str is None or not isinstance(valor_str, str):
-            return valor_str
-        valor_limpo = re.sub(r'[^\d,\.]', '', valor_str)
-        if not valor_limpo:
-            return None
-        try:
-            if ',' in valor_limpo and '.' in valor_limpo:
-                valor_limpo = valor_limpo.replace('.', '').replace(',', '.')
-            else:
-                valor_limpo = valor_limpo.replace(',', '.')
-            valor_float = float(valor_limpo)
-            return f"{valor_float:,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
-        except (ValueError, TypeError):
-            return valor_str
-
     def _criar_lotes(self, paginas: List[int], tamanho_lote: int) -> List[List[int]]:
         """Divide uma lista de páginas em lotes (chunks) de tamanho fixo."""
         lotes = []
@@ -154,34 +141,14 @@ class P1Processor:
             lotes.append(paginas[i:i + tamanho_lote])
         return lotes
 
-    def _formatar_data(self, data_str: str | None) -> str | None:
-        if data_str is None or not isinstance(data_str, str):
-            return data_str
-        data_str = data_str.strip()
-        # Padrão dd/mm/yyyy
-        try:
-            dt_obj = datetime.strptime(data_str, '%d/%m/%Y')
-            return dt_obj.strftime('%d de %B de %Y').replace(
-                dt_obj.strftime('%B'), dt_obj.strftime('%B').capitalize()
-            )
-        except ValueError:
-            pass
-        # Padrão "dd de Mês de yyyy" (qualquer capitalização)
-        match = re.match(r'^(\d{1,2})\s+de\s+(\w+)\s+de\s+(\d{4})\s*$', data_str, re.IGNORECASE)
-        if match:
-            dia, mes, ano = match.group(1), match.group(2).capitalize(), match.group(3)
-            return f"{dia} de {mes} de {ano}"
-        return data_str
-
     def _post_processar_dados(self, dados_json: dict) -> dict:
         if not dados_json:
             return dados_json
-        dados_json['data'] = self._formatar_data(dados_json.get('data'))
-        dados_json['valor_total'] = self._formatar_valor(
-            dados_json.get('valor_total'))
+        dados_json['data'] = formatar_data(dados_json.get('data'))
+        dados_json['valor_total'] = formatar_valor(dados_json.get('valor_total'))
         if 'fontes_detalhadas' in dados_json and isinstance(dados_json['fontes_detalhadas'], list):
             for detalhe in dados_json['fontes_detalhadas']:
-                detalhe['valor'] = self._formatar_valor(detalhe.get('valor'))
+                detalhe['valor'] = formatar_valor(detalhe.get('valor'))
         return dados_json
 
     def _limpar_texto_ocr(self, texto: str) -> str:
@@ -191,7 +158,7 @@ class P1Processor:
 
     def _call_gemini(self, prompt: str, contexto: str, imagens: Optional[List[bytes]] = None, tentativa=1, max_tentativas=3) -> dict | None:
         if tentativa > max_tentativas:
-            print(f"Erro: Máximo de tentativas ({max_tentativas}) atingido.")
+            logger.error("Máximo de tentativas (%d) atingido.", max_tentativas)
             return None
         try:
             generation_config = genai.GenerationConfig(
@@ -218,16 +185,16 @@ class P1Processor:
             )
 
             metadata = resposta_objeto.usage_metadata
-            print(
-                f"[TOKENS] Entrada: {metadata.prompt_token_count} | "
-                f"Saída: {metadata.candidates_token_count} | "
-                f"Total: {metadata.total_token_count}"
+            logger.info(
+                "[TOKENS] Entrada: %d | Saída: %d | Total: %d",
+                metadata.prompt_token_count,
+                metadata.candidates_token_count,
+                metadata.total_token_count,
             )
             return json.loads(resposta_objeto.text)
 
         except Exception as e:
-            print(
-                f"Erro na chamada da API ou JSON (Tentativa {tentativa}): {e}")
+            logger.error("Erro na chamada da API ou JSON (Tentativa %d): %s", tentativa, e)
             time.sleep(5)
             return self._call_gemini(prompt, contexto, imagens, tentativa + 1, max_tentativas)
 
@@ -442,8 +409,7 @@ class P1Processor:
 
         try:
             if not os.path.exists(caminho_pdf):
-                print(
-                    f"[ERRO PyMuPDF] Arquivo PDF não encontrado em: {caminho_pdf}")
+                logger.error("[PyMuPDF] Arquivo PDF não encontrado em: %s", caminho_pdf)
                 return []
 
             documento = fitz.open(caminho_pdf)
@@ -458,11 +424,10 @@ class P1Processor:
                         'image_bytes': image_bytes
                     })
                 else:
-                    print(
-                        f"[AVISO] Página {numero_pagina} fora do limite do PDF.")
+                    logger.warning("[PyMuPDF] Página %d fora do limite do PDF.", numero_pagina)
             documento.close()
         except Exception as e:
-            print(f"[ERRO PyMuPDF] Falha ao extrair imagens do PDF: {e}")
+            logger.error("[PyMuPDF] Falha ao extrair imagens do PDF: %s", e)
             return []
 
         return imagens_paginas
@@ -482,7 +447,7 @@ class P1Processor:
         Processa UM ÚNICO bloco de texto (já classificado como Tipo 1).
         Extrai informações textuais e multimodais (se necessário).
         """
-        print(f"--- Processando Bloco P1 ---")
+        logger.info("--- Processando Bloco P1 ---")
 
         # 1. Segmentação e VETO (Lógica do TestHelper)
         bloco_inicio_ajustado, bloco_meio_anexo, _ = self._segmentar_bloco_decreto(
@@ -491,22 +456,21 @@ class P1Processor:
 
         # 2. VERIFICAÇÃO DO VETO (LÓGICA INTEGRADA)
         if bloco_inicio_ajustado and bloco_inicio_ajustado.startswith("[ALERTA_AMBIGUIDADE]"):
-            print(bloco_inicio_ajustado)
-            print(f"--- Bloco P1 VETADO. --- \n")
+            logger.warning(bloco_inicio_ajustado)
+            logger.warning("--- Bloco P1 VETADO. ---")
             return {"ERRO": "Veto de Ambiguidade", "detalhe": bloco_inicio_ajustado}
 
         if not bloco_inicio_ajustado:
-            print("[Erro P1] Falha na segmentação. Bloco de início está vazio.")
+            logger.error("[P1] Falha na segmentação. Bloco de início está vazio.")
             return {"ERRO": "Falha na Segmentação", "detalhe": "Bloco de início (corpo) não encontrado."}
 
         # 3. Extração do Corpo (Etapa 1 - Gemini) - Textual
-        print(
-            "Etapa 1: Executando extração primária do Corpo do Decreto (Textual)...")
+        logger.info("Etapa 1: Executando extração primária do Corpo do Decreto (Textual)...")
         dados_iniciais = self._call_gemini(
             self.PROMPT_ANALISE_Pattern_1, bloco_inicio_ajustado)
 
         if not dados_iniciais:
-            print(f"[Erro P1] Falha na extração primária. Pulando.")
+            logger.error("[P1] Falha na extração primária. Pulando.")
             return {"ERRO": "Falha na API Gemini", "detalhe": "A extração textual primária falhou ou retornou vazio."}
 
         # 4. (Desativado) Extração Multimodal de códigos de Excesso de Arrecadação.
@@ -514,7 +478,7 @@ class P1Processor:
         # fontes textuais para identificar se o decreto é de Excesso de Arrecadação.
 
         # 5. Pós-processamento e Formatação Final
-        print("Etapa 2: Aplicando formatação final...")
+        logger.info("Etapa 2: Aplicando formatação final...")
         dados_finais_formatados = self._post_processar_dados(dados_iniciais)
 
         # Flag auxiliar para a camada de apresentação: decreto com Excesso?
@@ -524,6 +488,6 @@ class P1Processor:
         )
         dados_finais_formatados["_is_excesso"] = is_excesso
 
-        print(f"--- Bloco P1 finalizado. ---\n")
+        logger.info("--- Bloco P1 finalizado. ---")
 
         return dados_finais_formatados

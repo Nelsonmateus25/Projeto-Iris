@@ -1,21 +1,24 @@
 
 import os
 import time
+import logging
 import boto3
 from collections import defaultdict
 from dotenv import load_dotenv
 from typing import List, Dict, Any, Optional
+
 load_dotenv(override=True)
+
+logger = logging.getLogger(__name__)
 
 AWS_REGION = os.getenv("AWS_REGION", "us-east-2")
 BUCKET_NAME = os.getenv("BUCKET_NAME", "projetoiris")
 
 if not BUCKET_NAME or not AWS_REGION:
-    print(
-        "[Erro Config] BUCKET_NAME ou AWS_REGION não definidos. "
+    logger.error(
+        "BUCKET_NAME ou AWS_REGION não definidos. "
         "Verifique seu arquivo .env ou variáveis de ambiente."
     )
-    # exception
 
 
 def upload_to_s3(file_path: str, bucket_name: str, s3_key: str) -> bool:
@@ -33,16 +36,14 @@ def upload_to_s3(file_path: str, bucket_name: str, s3_key: str) -> bool:
     s3 = boto3.client("s3", region_name=AWS_REGION)
     try:
         s3.upload_file(file_path, bucket_name, s3_key)
-        print(
-            f"[Upload S3] Sucesso: '{file_path}' enviado para 's3://{bucket_name}/{s3_key}'"
-        )
+        logger.info("[Upload S3] Sucesso: '%s' enviado para 's3://%s/%s'", file_path, bucket_name, s3_key)
         return True
     except FileNotFoundError:
-        print(f"[Erro Upload S3] Arquivo local não encontrado: {file_path}")
+        logger.error("[Upload S3] Arquivo local não encontrado: %s", file_path)
         return False
     except Exception as e:
-        print(f"[Erro Upload S3] Falha no upload: {e}")
-        print("Verifique suas credenciais AWS e permissões do bucket.")
+        logger.error("[Upload S3] Falha no upload: %s", e)
+        logger.error("Verifique suas credenciais AWS e permissões do bucket.")
         return False
 
 
@@ -57,11 +58,9 @@ def delete_from_s3(bucket_name: str, s3_key: str) -> None:
     s3 = boto3.client("s3", region_name=AWS_REGION)
     try:
         s3.delete_object(Bucket=bucket_name, Key=s3_key)
-        print(
-            f"[Cleanup S3] Sucesso: Objeto 's3://{bucket_name}/{s3_key}' deletado."
-        )
+        logger.info("[Cleanup S3] Sucesso: Objeto 's3://%s/%s' deletado.", bucket_name, s3_key)
     except Exception as e:
-        print(f"[Erro Cleanup S3] Falha ao deletar: {e}")
+        logger.error("[Cleanup S3] Falha ao deletar: %s", e)
 
 
 def extract_text_textract_s3(bucket_name: str, s3_key: str) -> str:
@@ -87,9 +86,9 @@ def extract_text_textract_s3(bucket_name: str, s3_key: str) -> str:
                 "Bucket": bucket_name, "Name": s3_key}}
         )
         job_id = response["JobId"]
-        print(f"[Textract] Job iniciado: {job_id}")
+        logger.info("[Textract] Job iniciado: %s", job_id)
     except Exception as e:
-        print(f"[Erro Textract] Falha ao iniciar o job: {e}")
+        logger.error("[Textract] Falha ao iniciar o job: %s", e)
         return "[Erro Textract S3: Falha ao iniciar]"
 
     result: Dict[str, Any] = {}
@@ -97,12 +96,12 @@ def extract_text_textract_s3(bucket_name: str, s3_key: str) -> str:
         try:
             result = textract.get_document_text_detection(JobId=job_id)
             status = result["JobStatus"]
-            print(f"[Textract] Status: {status}")
+            logger.info("[Textract] Status: %s", status)
             if status in ["SUCCEEDED", "FAILED"]:
                 break
             time.sleep(3)
         except Exception as e:
-            print(f"[Erro Textract] Falha ao obter status do job: {e}")
+            logger.error("[Textract] Falha ao obter status do job: %s", e)
             return "[Erro Textract S3: Falha no get_status]"
 
     if result["JobStatus"] == "SUCCEEDED":
@@ -111,7 +110,7 @@ def extract_text_textract_s3(bucket_name: str, s3_key: str) -> str:
         next_token = result.get("NextToken")
 
         while next_token:
-            print("[Textract] Buscando mais resultados (NextToken)...")
+            logger.info("[Textract] Buscando mais resultados (NextToken)...")
             response_pag = textract.get_document_text_detection(
                 JobId=job_id, NextToken=next_token
             )
@@ -119,7 +118,7 @@ def extract_text_textract_s3(bucket_name: str, s3_key: str) -> str:
             next_token = response_pag.get("NextToken")
 
         # --- LÓGICA CENTRAL (INTOCADA, CONFORME SOLICITADO) ---
-        print("[Textract] Processando e agrupando blocos por página...")
+        logger.info("[Textract] Processando e agrupando blocos por página...")
 
         # Etapa 2: Agrupar todas as linhas de texto por seu número de página
         pages_content = defaultdict(list)
@@ -142,8 +141,7 @@ def extract_text_textract_s3(bucket_name: str, s3_key: str) -> str:
 
         return full_text
 
-    print(
-        f"[Erro Textract] Job falhou: {job_id}. Detalhes: {result.get('StatusMessage')}")
+    logger.error("[Textract] Job falhou: %s. Detalhes: %s", job_id, result.get('StatusMessage'))
     return "[Erro Textract S3: Job FAILED]"
 
 
@@ -174,7 +172,7 @@ def processar_pdf_s3(
     Returns:
         O caminho do arquivo .txt salvo em caso de sucesso, ou None.
     """
-    print(f"\n--- Iniciando processamento para: {local_pdf_path} ---")
+    logger.info("--- Iniciando processamento para: %s ---", local_pdf_path)
 
     # 1. Gerar nomes de arquivo e S3 key
     base_name = os.path.basename(local_pdf_path)
@@ -189,28 +187,26 @@ def processar_pdf_s3(
     # 2. Criar diretório de saída
     try:
         os.makedirs(output_dir, exist_ok=True)
-        print(f"[IO] Diretório de saída '{output_dir}' garantido.")
+        logger.info("[IO] Diretório de saída '%s' garantido.", output_dir)
     except Exception as e:
-        print(
-            f"[Erro IO] Não foi possível criar o diretório '{output_dir}': {e}")
+        logger.error("[IO] Não foi possível criar o diretório '%s': %s", output_dir, e)
         return None
 
     # 3. Upload para S3
     if not upload_to_s3(local_pdf_path, BUCKET_NAME, s3_key):
-        print(f"[Falha] Upload do arquivo {local_pdf_path} falhou. Abortando.")
+        logger.error("[Falha] Upload do arquivo %s falhou. Abortando.", local_pdf_path)
         return None
 
     # 4. Execução do Textract
-    print("\n--- INICIANDO EXTRAÇÃO COM TEXTRACT (isso pode levar alguns minutos...) ---")
+    logger.info("--- INICIANDO EXTRAÇÃO COM TEXTRACT (isso pode levar alguns minutos...) ---")
     start_time = time.time()
     extracted_text = extract_text_textract_s3(BUCKET_NAME, s3_key)
     end_time = time.time()
-    print(
-        f"--- EXTRAÇÃO CONCLUÍDA (Levou {end_time - start_time:.2f} segundos) ---")
+    logger.info("--- EXTRAÇÃO CONCLUÍDA (Levou %.2f segundos) ---", end_time - start_time)
 
     # 5. Validação e Salvamento do .txt
     if "[Erro Textract S3]" in extracted_text or not extracted_text:
-        print(f"[Falha] Ocorreu um erro no Textract. Nenhum arquivo .txt será salvo.")
+        logger.error("[Falha] Ocorreu um erro no Textract. Nenhum arquivo .txt será salvo.")
         if cleanup_s3:
             delete_from_s3(BUCKET_NAME, s3_key)
         return None
@@ -218,7 +214,7 @@ def processar_pdf_s3(
     try:
         with open(output_txt_path, "w", encoding="utf-8") as f:
             f.write(extracted_text)
-        print(f"\n[✔ SUCESSO] Saída completa salva em: '{output_txt_path}'")
+        logger.info("[SUCESSO] Saída completa salva em: '%s'", output_txt_path)
 
         # 6. (Opcional) Cleanup
         if cleanup_s3:
@@ -227,8 +223,7 @@ def processar_pdf_s3(
         return output_txt_path
 
     except Exception as e:
-        print(
-            f"[Erro IO] Não foi possível salvar o arquivo .txt em '{output_txt_path}': {e}")
+        logger.error("[IO] Não foi possível salvar o arquivo .txt em '%s': %s", output_txt_path, e)
         return None
 
 
@@ -240,7 +235,12 @@ if __name__ == "__main__":
 
     Ele serve como um teste rápido para a função `processar_pdf_s3`.
     """
-    print("\n--- INICIANDO SCRIPT DE TESTE (pdf_to_txt.py) ---")
+    logging.basicConfig(
+        level=logging.INFO,
+        format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
+    )
+
+    logger.info("--- INICIANDO SCRIPT DE TESTE (pdf_to_txt.py) ---")
 
     # 1. Definições
     # !! IMPORTANTE !!
@@ -251,11 +251,9 @@ if __name__ == "__main__":
 
     # 2. Execução da função principal
     if not os.path.exists(local_file_to_test):
-        print(
-            f"[Erro Teste] O arquivo de teste não foi encontrado em: '{local_file_to_test}'")
-        print("Por favor, atualize a variável 'local_file_to_test' no bloco __main__.")
+        logger.error("[Teste] Arquivo de teste não encontrado em: '%s'", local_file_to_test)
+        logger.error("Atualize a variável 'local_file_to_test' no bloco __main__.")
     else:
-        # Chamamos a função principal
         # cleanup_s3=False (Padrão) -> Mantém o arquivo no S3 para debugging
         # cleanup_s3=True -> Deleta o arquivo do S3 após o processo
         caminho_do_txt = processar_pdf_s3(
@@ -265,9 +263,8 @@ if __name__ == "__main__":
         )
 
         if caminho_do_txt:
-            print(f"\n[Teste ✔] Processamento concluído com sucesso.")
-            print(f"Arquivo de saída: {caminho_do_txt}")
+            logger.info("[Teste OK] Processamento concluído. Arquivo: %s", caminho_do_txt)
         else:
-            print(f"\n[Teste ❌] Processamento falhou.")
+            logger.error("[Teste FALHOU] Processamento falhou.")
 
-    print("\n--- SCRIPT DE TESTE FINALIZADO ---")
+    logger.info("--- SCRIPT DE TESTE FINALIZADO ---")

@@ -1,5 +1,8 @@
 import os
 import base64
+import uuid
+import tempfile
+import logging
 import traceback
 import pandas as pd
 import google.generativeai as genai
@@ -24,8 +27,14 @@ from utils.pdf_to_txt import (
 
 load_dotenv(override=True)
 
-UPLOAD_FOLDER = "uploads"
-os.makedirs(UPLOAD_FOLDER, exist_ok=True)
+# Configura o logging uma única vez, no ponto de entrada da aplicação.
+# Todos os módulos (p1, p2, p3, pdf_to_txt) herdam essa configuração
+# e seus logs aparecerão no terminal com timestamp e nome do módulo.
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
+)
+logger = logging.getLogger(__name__)
 
 # ==============================================================================
 # INICIALIZAÇÃO DO MODELO (cached para não recarregar a cada interação)
@@ -315,116 +324,11 @@ def executar_processamento(pdf_path: str, texto_total: str):
 # CSS CUSTOMIZADO (equivalente ao <style> do index.html)
 # ==============================================================================
 
-CUSTOM_CSS = """
-<style>
-/* ── Botão Analisar azul ── */
-[data-testid="baseButton-primary"] {
-    background-color: #3498db !important;
-    border-color: #2980b9 !important;
-    color: #ffffff !important;
-}
-[data-testid="baseButton-primary"]:hover {
-    background-color: #2980b9 !important;
-    border-color: #2471a3 !important;
-}
-
-/* ── Células das tabelas com fundo branco (legível em tema escuro) ── */
-td, th {
-    color: #333333 !important;
-    background-color: #ffffff !important;
-}
-thead th {
-    background-color: #ecf0f1 !important;
-    color: #34495e !important;
-}
-tbody tr:nth-child(even) td {
-    background-color: #f9f9f9 !important;
-}
-
-/* ── Títulos dos quadros: herdam cor do tema (escuro em modo claro, claro em modo escuro) ── */
-/* h3 e h4 sem override de cor para funcionar em ambos os temas */
-
-/* ── Tabelas ── */
-table {
-    width: 100%;
-    border-collapse: collapse;
-    margin-top: 15px;
-    font-size: 0.9rem;
-    display: block;
-    overflow-x: auto;
-    white-space: nowrap;
-}
-th, td {
-    border: 1px solid #ddd;
-    padding: 10px;
-    text-align: left;
-    white-space: nowrap;
-}
-
-/* ── Quadro de erros / alertas ── */
-.error-summary {
-    background-color: #fdf7f7;
-    border: 1px solid #f3caca;
-    border-radius: 8px;
-    padding: 15px 20px;
-}
-.error-summary h3 { color: #c0392b !important; margin-top: 0; }
-.error-summary p  { font-weight: 600; font-size: 1.1rem; color: #a94442; }
-.error-summary table { display: table; overflow-x: auto; white-space: normal; }
-.error-summary thead { background-color: #fbeeee; }
-.error-summary td:last-child { white-space: normal; word-break: break-word; min-width: 300px; }
-.error-summary.no-errors {
-    background-color: #e8f5e9;
-    border: 1px solid #a5d6a7;
-}
-.error-summary.no-errors h3 { color: #2e7d32 !important; }
-.error-summary.no-errors p  { color: #1b5e20; }
-
-/* ── Galeria de anexos — ícone quadrado ── */
-details.galeria-decreto { margin-bottom: 8px; }
-details.galeria-decreto > summary {
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    width: 64px;
-    height: 64px;
-    background: #3498db;
-    border-radius: 10px;
-    cursor: pointer;
-    font-size: 30px;
-    list-style: none;
-    user-select: none;
-    box-shadow: 0 2px 6px rgba(0,0,0,0.18);
-    transition: background 0.2s;
-}
-details.galeria-decreto > summary:hover { background: #2980b9; }
-details.galeria-decreto > summary::-webkit-details-marker { display: none; }
-details.galeria-decreto .galeria-scroll {
-    margin-top: 12px;
-    max-height: 72vh;
-    overflow-y: auto;
-    background: #fff;
-    border-radius: 8px;
-    padding: 12px;
-    border: 1px solid #e0e0e0;
-}
-details.galeria-decreto .galeria-scroll .pg-item {
-    margin-bottom: 24px;
-}
-details.galeria-decreto .galeria-scroll .pg-item h4 {
-    margin-bottom: 8px;
-    color: #2c3e50 !important;
-    font-size: 0.95rem;
-}
-details.galeria-decreto .galeria-scroll img {
-    max-width: 100%;
-    height: auto;
-    border: 1px solid #ddd;
-    border-radius: 4px;
-    box-shadow: 0 2px 4px rgba(0,0,0,0.1);
-}
-</style>
-"""
+def carregar_css() -> None:
+    """Lê assets/style.css e injeta como bloco <style> na página."""
+    css_path = os.path.join(os.path.dirname(__file__), "assets", "style.css")
+    with open(css_path, encoding="utf-8") as f:
+        st.markdown(f"<style>{f.read()}</style>", unsafe_allow_html=True)
 
 
 # ==============================================================================
@@ -437,28 +341,37 @@ st.set_page_config(
     layout="wide",
 )
 
-st.markdown(CUSTOM_CSS, unsafe_allow_html=True)
-st.title("Analisador de Decretos (Modo Local)")
+carregar_css()
+st.title("Analisador de Decretos")
 
 # --- Seção 1: Upload ---
 st.header("1. Enviar Arquivos")
-st.write("Envie o PDF original (para análise de imagens) e o arquivo TXT (para análise de texto).")
+st.write("Envie o PDF do decreto")
 
 col1, col2 = st.columns(2)
 with col1:
     pdf_upload = st.file_uploader("Arquivo PDF Original (.pdf) *obrigatório", type=["pdf"])
 with col2:
     txt_upload = st.file_uploader(
-        "Arquivo TXT (OCR) Correspondente (.txt) — opcional (se não enviado, o PDF é processado via Amazon Textract)",
+        "",
         type=["txt"],
     )
 
 analisar = st.button("Analisar", type="primary", disabled=not pdf_upload)
 
 if analisar and pdf_upload:
-    pdf_path = os.path.join(UPLOAD_FOLDER, pdf_upload.name)
-    with open(pdf_path, "wb") as f:
-        f.write(pdf_upload.getvalue())
+    # UUID garante nome único mesmo se dois usuários enviarem o mesmo arquivo ao mesmo tempo.
+    # delete=False mantém o arquivo no disco após o close() — necessário pois outros
+    # módulos (PyMuPDF, processadores) precisam acessar o arquivo pelo caminho depois.
+    uid = uuid.uuid4().hex
+    tmp_pdf = tempfile.NamedTemporaryFile(
+        suffix=f"_{uid}_{pdf_upload.name}",
+        delete=False,
+    )
+    tmp_pdf.write(pdf_upload.getvalue())
+    tmp_pdf.flush()
+    pdf_path = tmp_pdf.name
+    tmp_pdf.close()
 
     texto_total = None
 
@@ -472,8 +385,9 @@ if analisar and pdf_upload:
 
     # --- Caminho 2: Só PDF → gera texto via Amazon Textract ---
     else:
-        st.info("Nenhum TXT fornecido — enviando PDF para o Amazon Textract. Isso pode levar alguns minutos...")
-        s3_key = f"textract-uploads/{pdf_upload.name}"
+        st.info("Enviando PDF para o Amazon Textract. Isso pode levar alguns minutos...")
+        # UUID também na chave S3 evita colisões de nomes no bucket
+        s3_key = f"textract-uploads/{uid}_{pdf_upload.name}"
         with st.spinner("Fazendo upload do PDF para o S3..."):
             upload_ok = upload_to_s3(pdf_path, BUCKET_NAME, s3_key)
 
@@ -495,12 +409,18 @@ if analisar and pdf_upload:
             except Exception as e:
                 st.error(f"Erro durante o processamento: {e}")
                 st.code(traceback.format_exc())
+    else:
+        # Remove o arquivo temporário se o processamento não foi executado
+        try:
+            os.unlink(pdf_path)
+        except Exception:
+            pass
 
 # --- Seção 2: Resultados ---
 st.header("2. Resultados da Análise")
 
 if "dados_extraidos" not in st.session_state:
-    st.info("Envie um PDF (e opcionalmente um TXT) para iniciar a análise.")
+    st.info("Envie um PDF para iniciar a análise.")
 else:
     resultados = st.session_state["dados_extraidos"]
     erros = st.session_state.get("erros_processamento", [])

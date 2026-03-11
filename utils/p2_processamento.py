@@ -11,9 +11,12 @@ import re
 import json
 import time
 import locale
-from datetime import datetime
+import logging
 from typing import List, Optional, Tuple, Dict, Any
 import google.generativeai as genai
+from utils.formatters import formatar_valor, formatar_data
+
+logger = logging.getLogger(__name__)
 
 # ==============================================================================
 # CLASSE DE PROCESSAMENTO P2
@@ -79,43 +82,6 @@ class P2Processor:
         # Regex estrito para o Artigo 2°
         self.REGEX_ART_2 = re.compile(r'Art\.\s*2[º°]', re.IGNORECASE)
 
-    # --- Métodos Utilitários de Formatação (Reutilizados do P1) ---
-
-    def _formatar_valor(self, valor_str: str | None) -> str | None:
-        if valor_str is None or not isinstance(valor_str, str):
-            return valor_str
-        valor_limpo = re.sub(r'[^\d,\.]', '', valor_str)
-        if not valor_limpo:
-            return None
-        try:
-            if ',' in valor_limpo and '.' in valor_limpo:
-                valor_limpo = valor_limpo.replace('.', '').replace(',', '.')
-            else:
-                valor_limpo = valor_limpo.replace(',', '.')
-            valor_float = float(valor_limpo)
-            return f"{valor_float:,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
-        except (ValueError, TypeError):
-            return valor_str
-
-    def _formatar_data(self, data_str: str | None) -> str | None:
-        if data_str is None or not isinstance(data_str, str):
-            return data_str
-        data_str = data_str.strip()
-        # Padrão dd/mm/yyyy
-        try:
-            dt_obj = datetime.strptime(data_str, '%d/%m/%Y')
-            return dt_obj.strftime('%d de %B de %Y').replace(
-                dt_obj.strftime('%B'), dt_obj.strftime('%B').capitalize()
-            )
-        except ValueError:
-            pass
-        # Padrão "dd de Mês de yyyy" (qualquer capitalização)
-        match = re.match(r'^(\d{1,2})\s+de\s+(\w+)\s+de\s+(\d{4})\s*$', data_str, re.IGNORECASE)
-        if match:
-            dia, mes, ano = match.group(1), match.group(2).capitalize(), match.group(3)
-            return f"{dia} de {mes} de {ano}"
-        return data_str
-
     def _limpar_texto(self, texto: str) -> str:
         if not texto:
             return ""
@@ -152,7 +118,7 @@ class P2Processor:
             parte_1 = bloco[:pos_fim_p1]
             # erros.append(
             #    "Aviso: 'REDU.' não encontrado para Parte 1. Usando corte no Art. 3º.")
-            print("Aviso: 'REDU.' não encontrado para Parte 1. Usando corte no Art. 3º.")
+            logger.warning("'REDU.' não encontrado para Parte 1. Usando corte no Art. 3º.")
         else:
             # Estrutura Inválida Crítica
             erros.append(
@@ -189,7 +155,7 @@ class P2Processor:
             parte_2 = bloco[pos_art_2_inicio:match_art_3.start()]
             # erros.append(
             #    "Aviso: 'REDU.' pós-Art. 2º não encontrado. Usando corte no Art. 3º.")
-            print("Aviso: 'REDU.' pós-Art. 2º não encontrado. Usando corte no Art. 3º.")
+            logger.warning("'REDU.' pós-Art. 2º não encontrado. Usando corte no Art. 3º.")
         else:
             # Se não tem REDU nem Art 3 para fechar o Art 2
             erros.append(
@@ -221,8 +187,7 @@ class P2Processor:
                 parte_3 = bloco[pos_inicio_p3:]
                 # erros.append(
                 #    "Aviso: Nenhuma 'REDU.' antes do Art. 3º para corte preciso. Usando retrocesso de 500 chars.")
-                print(
-                    "Aviso: Nenhuma 'REDU.' antes do Art. 3º para corte preciso. Usando retrocesso de 500 chars.")
+                logger.warning("Nenhuma 'REDU.' antes do Art. 3º para corte preciso. Usando retrocesso de 500 chars.")
         else:
             erros.append(
                 "Erro Crítico: 'Art. 3º' não encontrado para Parte 3.")
@@ -251,7 +216,7 @@ class P2Processor:
             return json.loads(resposta_objeto.text)
 
         except Exception as e:
-            print(f"[P2] Erro API Gemini (Tentativa {tentativa}): {e}")
+            logger.error("[P2] Erro API Gemini (Tentativa %d): %s", tentativa, e)
             time.sleep(2)
             return self._call_gemini(prompt, texto_concatenado, tentativa + 1, max_tentativas)
 
@@ -274,7 +239,7 @@ class P2Processor:
         Returns:
             Dict com os dados extraídos ou Dicionário de Erro.
         """
-        print(f"--- Processando Bloco P2 (Lógica REDU/Artigos) ---")
+        logger.info("--- Processando Bloco P2 (Lógica REDU/Artigos) ---")
 
         # 1. Segmentação
         p1, p2, p3, erros = self._segmentar_bloco_decreto(bloco_tipo_2)
@@ -282,17 +247,17 @@ class P2Processor:
         # Verificação de Erros Críticos (aqueles que retornaram strings vazias nas partes vitais)
         erros_criticos = [e for e in erros if "Erro Crítico" in e]
         if erros_criticos:
-            print(f"[Erro P2] Falha na segmentação: {erros_criticos[0]}")
+            logger.error("[P2] Falha na segmentação: %s", erros_criticos[0])
             return {"ERRO": "Falha Estrutural P2", "detalhe": erros_criticos}
 
         if erros:
-            print(f"[Aviso P2] Alertas de segmentação: {erros}")
+            logger.warning("[P2] Alertas de segmentação: %s", erros)
 
         # 2. Preparação para LLM
         # Concatenamos as partes relevantes. Isso remove o "lixo" entre as seções.
         texto_para_analise = f"--- INICIO ---\n{p1}\n\n--- MEIO (FONTES) ---\n{p2}\n\n--- FIM (FECHAMENTO) ---\n{p3}"
 
-        print("Etapa 1: Enviando partes segmentadas para o Gemini...")
+        logger.info("Etapa 1: Enviando partes segmentadas para o Gemini...")
 
         # 3. Chamada LLM
         dados_extraidos = self._call_gemini(
@@ -302,14 +267,12 @@ class P2Processor:
             return {"ERRO": "Falha na API Gemini", "detalhe": "Retorno vazio ou inválido."}
 
         # 4. Pós-processamento
-        dados_extraidos['valor_total'] = self._formatar_valor(
-            dados_extraidos.get('valor_total'))
-        dados_extraidos['data'] = self._formatar_data(
-            dados_extraidos.get('data'))
+        dados_extraidos['valor_total'] = formatar_valor(dados_extraidos.get('valor_total'))
+        dados_extraidos['data'] = formatar_data(dados_extraidos.get('data'))
 
         if 'fontes_detalhadas' in dados_extraidos and isinstance(dados_extraidos['fontes_detalhadas'], list):
             for fonte in dados_extraidos['fontes_detalhadas']:
-                fonte['valor'] = self._formatar_valor(fonte.get('valor'))
+                fonte['valor'] = formatar_valor(fonte.get('valor'))
 
         # Flag auxiliar para a camada de apresentação: decreto com Excesso?
         is_excesso = any(
@@ -322,5 +285,5 @@ class P2Processor:
         if erros:
             dados_extraidos['_segmentation_warnings'] = erros
 
-        print(f"--- Bloco P2 finalizado com sucesso. ---\n")
+        logger.info("--- Bloco P2 finalizado com sucesso. ---")
         return dados_extraidos

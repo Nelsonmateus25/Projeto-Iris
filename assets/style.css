@@ -1,0 +1,106 @@
+/* ── Botão Analisar azul ── */
+[data-testid="baseButton-primary"] {
+    background-color: #3498db !important;
+    border-color: #2980b9 !important;
+    color: #ffffff !important;
+}
+[data-testid="baseButton-primary"]:hover {
+    background-color: #2980b9 !important;
+    border-color: #2471a3 !important;
+}
+
+/* ── Células das tabelas com fundo branco (legível em tema escuro) ── */
+td, th {
+    color: #333333 !important;
+    background-color: #ffffff !important;
+}
+thead th {
+    background-color: #ecf0f1 !important;
+    color: #34495e !important;
+}
+tbody tr:nth-child(even) td {
+    background-color: #f9f9f9 !important;
+}
+
+/* ── Títulos dos quadros: herdam cor do tema (escuro em modo claro, claro em modo escuro) ── */
+/* h3 e h4 sem override de cor para funcionar em ambos os temas */
+
+/* ── Tabelas ── */
+table {
+    width: 100%;
+    border-collapse: collapse;
+    margin-top: 15px;
+    font-size: 0.9rem;
+    display: block;
+    overflow-x: auto;
+    white-space: nowrap;
+}
+th, td {
+    border: 1px solid #ddd;
+    padding: 10px;
+    text-align: left;
+    white-space: nowrap;
+}
+
+/* ── Quadro de erros / alertas ── */
+.error-summary {
+    background-color: #fdf7f7;
+    border: 1px solid #f3caca;
+    border-radius: 8px;
+    padding: 15px 20px;
+}
+.error-summary h3 { color: #c0392b !important; margin-top: 0; }
+.error-summary p  { font-weight: 600; font-size: 1.1rem; color: #a94442; }
+.error-summary table { display: table; overflow-x: auto; white-space: normal; }
+.error-summary thead { background-color: #fbeeee; }
+.error-summary td:last-child { white-space: normal; word-break: break-word; min-width: 300px; }
+.error-summary.no-errors {
+    background-color: #e8f5e9;
+    border: 1px solid #a5d6a7;
+}
+.error-summary.no-errors h3 { color: #2e7d32 !important; }
+.error-summary.no-errors p  { color: #1b5e20; }
+
+/* ── Galeria de anexos — ícone quadrado ── */
+details.galeria-decreto { margin-bottom: 8px; }
+details.galeria-decreto > summary {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 64px;
+    height: 64px;
+    background: #3498db;
+    border-radius: 10px;
+    cursor: pointer;
+    font-size: 30px;
+    list-style: none;
+    user-select: none;
+    box-shadow: 0 2px 6px rgba(0,0,0,0.18);
+    transition: background 0.2s;
+}
+details.galeria-decreto > summary:hover { background: #2980b9; }
+details.galeria-decreto > summary::-webkit-details-marker { display: none; }
+details.galeria-decreto .galeria-scroll {
+    margin-top: 12px;
+    max-height: 72vh;
+    overflow-y: auto;
+    background: #fff;
+    border-radius: 8px;
+    padding: 12px;
+    border: 1px solid #e0e0e0;
+}
+details.galeria-decreto .galeria-scroll .pg-item {
+    margin-bottom: 24px;
+}
+details.galeria-decreto .galeria-scroll .pg-item h4 {
+    margin-bottom: 8px;
+    color: #2c3e50 !important;
+    font-size: 0.95rem;
+}
+details.galeria-decreto .galeria-scroll img {
+    max-width: 100%;
+    height: auto;
+    border: 1px solid #ddd;
+    border-radius: 4px;
+    box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+}

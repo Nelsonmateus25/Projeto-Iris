@@ -14,9 +14,12 @@ import re
 import json
 import time
 import locale
-from datetime import datetime
+import logging
 from typing import List, Optional, Tuple, Dict, Any
 import google.generativeai as genai
+from utils.formatters import formatar_valor, formatar_data
+
+logger = logging.getLogger(__name__)
 
 # ==============================================================================
 # CLASSE DE PROCESSAMENTO P3
@@ -83,43 +86,6 @@ class P3Processor:
         }
         """
 
-    # --- Métodos Utilitários (Idênticos ao P1/P2) ---
-
-    def _formatar_valor(self, valor_str: str | None) -> str | None:
-        if valor_str is None or not isinstance(valor_str, str):
-            return valor_str
-        valor_limpo = re.sub(r'[^\d,\.]', '', valor_str)
-        if not valor_limpo:
-            return None
-        try:
-            if ',' in valor_limpo and '.' in valor_limpo:
-                valor_limpo = valor_limpo.replace('.', '').replace(',', '.')
-            else:
-                valor_limpo = valor_limpo.replace(',', '.')
-            valor_float = float(valor_limpo)
-            return f"{valor_float:,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
-        except (ValueError, TypeError):
-            return valor_str
-
-    def _formatar_data(self, data_str: str | None) -> str | None:
-        if data_str is None or not isinstance(data_str, str):
-            return data_str
-        data_str = data_str.strip()
-        # Padrão dd/mm/yyyy
-        try:
-            dt_obj = datetime.strptime(data_str, '%d/%m/%Y')
-            return dt_obj.strftime('%d de %B de %Y').replace(
-                dt_obj.strftime('%B'), dt_obj.strftime('%B').capitalize()
-            )
-        except ValueError:
-            pass
-        # Padrão "dd de Mês de yyyy" (qualquer capitalização)
-        match = re.match(r'^(\d{1,2})\s+de\s+(\w+)\s+de\s+(\d{4})\s*$', data_str, re.IGNORECASE)
-        if match:
-            dia, mes, ano = match.group(1), match.group(2).capitalize(), match.group(3)
-            return f"{dia} de {mes} de {ano}"
-        return data_str
-
     def _limpar_texto(self, texto: str) -> str:
         if not texto:
             return ""
@@ -162,12 +128,9 @@ class P3Processor:
         if match_anexo_3:
             # Regra: Captura do ANEXO III até o final
             parte_b = bloco[match_anexo_3.start():]
-            print("Anexo III' encontrado")
+            logger.info("'Anexo III' encontrado.")
         else:
-            # Se não tem Anexo 3, não temos as fontes para esse tipo de decreto
-            # erros.append(
-            #    "Erro Crítico: 'Anexo III' não encontrado. Dados financeiros podem estar ausentes.")
-            print("Anexo III' NAO encontrado")
+            logger.warning("'Anexo III' NÃO encontrado.")
             # Parte B fica vazia
 
         return parte_a, parte_b, erros
@@ -190,7 +153,7 @@ class P3Processor:
             )
             return json.loads(resposta_objeto.text)
         except Exception as e:
-            print(f"[P3] Erro API Gemini (Tentativa {tentativa}): {e}")
+            logger.error("[P3] Erro API Gemini (Tentativa %d): %s", tentativa, e)
             time.sleep(2)
             return self._call_gemini(prompt, texto_concatenado, tentativa + 1, max_tentativas)
 
@@ -205,7 +168,7 @@ class P3Processor:
         """
         Processa um bloco Tipo 3.
         """
-        print(f"--- Processando Bloco P3 (Anexo III) ---")
+        logger.info("--- Processando Bloco P3 (Anexo III) ---")
 
         # 1. Segmentação
         p_corpo, p_anexo, erros = self._segmentar_bloco_decreto(bloco_tipo_3)
@@ -213,7 +176,7 @@ class P3Processor:
         # Filtrar erros críticos para log ou retorno
         erros_criticos = [e for e in erros if "Erro Crítico" in e]
         if erros_criticos:
-            print(f"[Aviso P3] Problemas na segmentação: {erros_criticos}")
+            logger.warning("[P3] Problemas na segmentação: %s", erros_criticos)
 
         # 2. Concatenação (Mesclagem)
         # Unimos o corpo (dados gerais) com o Anexo III (fontes)
@@ -223,7 +186,7 @@ class P3Processor:
             return {"ERRO": "Bloco Vazio", "detalhe": "Segmentação retornou vazio."}
 
         # 3. Extração AI
-        print("Etapa 1: Enviando blocos mesclados para o Gemini...")
+        logger.info("Etapa 1: Enviando blocos mesclados para o Gemini...")
         dados_extraidos = self._call_gemini(
             self.PROMPT_ANALISE_Pattern_3, texto_mesclado)
 
@@ -231,14 +194,12 @@ class P3Processor:
             return {"ERRO": "Falha na API Gemini", "detalhe": "Retorno vazio."}
 
         # 4. Pós-processamento
-        dados_extraidos['valor_total'] = self._formatar_valor(
-            dados_extraidos.get('valor_total'))
-        dados_extraidos['data'] = self._formatar_data(
-            dados_extraidos.get('data'))
+        dados_extraidos['valor_total'] = formatar_valor(dados_extraidos.get('valor_total'))
+        dados_extraidos['data'] = formatar_data(dados_extraidos.get('data'))
 
         if 'fontes_detalhadas' in dados_extraidos and isinstance(dados_extraidos['fontes_detalhadas'], list):
             for fonte in dados_extraidos['fontes_detalhadas']:
-                fonte['valor'] = self._formatar_valor(fonte.get('valor'))
+                fonte['valor'] = formatar_valor(fonte.get('valor'))
 
         # Flag auxiliar para a camada de apresentação: decreto com Excesso?
         is_excesso = any(
@@ -251,5 +212,5 @@ class P3Processor:
         if erros:
             dados_extraidos['_segmentation_warnings'] = erros
 
-        print(f"--- Bloco P3 finalizado. ---\n")
+        logger.info("--- Bloco P3 finalizado. ---")
         return dados_extraidos

@@ -13,8 +13,11 @@ Funções principais:
 """
 
 import re
+import logging
 from typing import List, Tuple
 from collections import Counter
+
+logger = logging.getLogger(__name__)
 
 
 def extrair_blocos_decreto(texto_completo: str) -> List[str]:
@@ -31,7 +34,7 @@ def extrair_blocos_decreto(texto_completo: str) -> List[str]:
     decretas = list(re.finditer(r"\bDECRETA[IL]?\b", texto_completo))
 
     if not all_delimiters or not decretas:
-        print("Não foram encontrados delimitadores ou a palavra 'DECRETA*'.")
+        logger.warning("Não foram encontrados delimitadores ou a palavra 'DECRETA*'.")
         return []
 
     # Mapeia cada "DECRETA*" ao seu delimitador de início
@@ -91,7 +94,7 @@ def extrair_blocos_decreto_com_paginas(texto_completo: str) -> List[Tuple[str, L
     decretas = list(re.finditer(r"\bDECRETA[IL]?\b", texto_completo))
 
     if not all_delimiters or not decretas:
-        print("Não foram encontrados delimitadores ou a palavra 'DECRETA*'.")
+        logger.warning("Não foram encontrados delimitadores ou a palavra 'DECRETA*'.")
         return []
 
     start_delimiters_matches = []
