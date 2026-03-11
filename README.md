@@ -1,4 +1,6 @@
 # Projeto Iris:
+<img width="1588" height="656" alt="image" src="https://github.com/user-attachments/assets/027ec0dd-f977-4680-9a21-02660b5e1635" />
+
 ## Aplicação Web que automatiza a extração e estruturação de dados de decretos municipais a partir de arquivos PDF.
 
 O usuário envia um PDF com um ou mais decretos. A aplicação converte o documento em texto (via **Amazon Textract** ou TXT fornecido manualmente), classifica cada decreto em um padrão estrutural (P1, P2 ou P3), extrai os dados financeiros com a **API Gemini** do Google, e apresenta os resultados em tabelas interativas com opção de download em Excel.
