@@ -1,0 +1,20 @@
+Melhores Práticas Profissionais para o Projeto
+Curto prazo (impacto imediato)
+utils/formatters.py — centralizar _formatar_valor e _formatar_data
+tempfile — substituir uploads/ por arquivos temporários
+UUID nos nomes de arquivo — evitar colisões em multiusuário
+logging — substituir todos os print() por logging estruturado
+assets/style.css — mover CSS para arquivo separado
+
+Médio prazo (qualidade)
+Substituir tabelas HTML por st.dataframe() — melhor UX, sem CSS hacks
+@st.cache_data nas imagens — cachear conversão PDF→JPEG por página
+Validação de upload — tamanho máximo, tipo de conteúdo
+Testes automatizados — pytest para as funções de processamento e formatação
+pyproject.toml — padronizar dependências com versões fixas
+
+Longo prazo (escalabilidade)
+Processamento assíncrono — usar asyncio ou uma fila (ex: Redis + Celery) para processar blocos em paralelo, pois cada bloco faz uma chamada de rede ao Gemini
+Banco de dados de resultados — salvar resultados por sessão/usuário em SQLite ou PostgreSQL ao invés de só session_state
+Rate limiting e retry com backoff — já existe retry básico nos processadores, mas poderia usar a biblioteca tenacity para uma estratégia mais robusta
+Monitoramento — integrar Sentry ou similar para capturar erros em produção silenciosamente
