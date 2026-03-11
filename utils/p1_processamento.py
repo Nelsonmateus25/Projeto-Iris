@@ -2,13 +2,11 @@
 Módulo de Processamento para Decretos "Padrão 1".
 
 Este módulo contém a classe `P1Processor`, que é especializada em
-realizar a extração de dados (Textual e Multimodal) de blocos de texto
+realizar a extração de dados Textual de blocos de texto
 que já foram classificados como "Tipo 1".
 
 A classe depende do PyMuPDF (fitz) para a extração de imagens de PDF.
 
-*** ADAPTAÇÃO: A lógica de segmentação e mapeamento do 'TestHelper'
-(Veto + Buffer) foi integrada nesta classe. ***
 """
 
 import re
@@ -19,30 +17,19 @@ import time
 import locale
 import logging
 from typing import List, Optional, Set, Tuple, Dict, Any
-import fitz  # PyMuPDF (para extração de imagem)
+import fitz  
 import google.generativeai as genai
 from utils.formatters import formatar_valor, formatar_data
-
 logger = logging.getLogger(__name__)
-
-# ==============================================================================
-# CLASSE DE PROCESSAMENTO P1
-# ==============================================================================
 
 
 class P1Processor:
     """
     Processador especializado para Decretos Padrão 1 (Decreto Nro X/XXXX).
-
-    Esta classe encapsula toda a lógica de extração de dados,
-    incluindo a segmentação do Anexo I e a extração multimodal (Imagens+Texto)
-    para encontrar os códigos de Excesso de Arrecadação.
+    Esta classe encapsula toda a lógica de extração de dados.
     """
 
     def __init__(self, gemini_model: genai.GenerativeModel):
-        """
-        Inicializa o processador com o modelo Gemini.
-        """
         self.model = gemini_model
         try:
             locale.setlocale(locale.LC_TIME, 'pt_BR.UTF-8')
@@ -86,7 +73,7 @@ class P1Processor:
         """
 
 
-        # --- PADRÕES DO TESTHELPER (VETO + LÓGICA DE LINHA) INTEGRADOS ---
+        # --- PADRÕES DO TESTHELPER 
 
         regex_limpo_1 = r'^[\s\t]*ANEXO\s+[I1L,aT]a?(?![a-zA-Z0-9])'
         regex_limpo_2 = r'^[\s\t]*ANEXO\s+([IT]{2}|2|[I][\s,]*2|[I][L])(?![a-zA-Z0-9])'
@@ -432,9 +419,7 @@ class P1Processor:
 
         return imagens_paginas
 
-    # --- Método Orquestrador Público (MODIFICADO) ---
 
-    # --- Método Orquestrador Público (MODIFICADO) ---
 
     def processar_bloco(
         self,
@@ -443,9 +428,9 @@ class P1Processor:
         caminho_pdf_associado: str
     ) -> Optional[Dict[str, Any]]:
         """
-        Método principal da classe (MODIFICADO PARA USAR O VETO).
+        Método principal da classe.
         Processa UM ÚNICO bloco de texto (já classificado como Tipo 1).
-        Extrai informações textuais e multimodais (se necessário).
+        Extrai informações textuais 
         """
         logger.info("--- Processando Bloco P1 ---")
 

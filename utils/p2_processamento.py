@@ -18,11 +18,6 @@ from utils.formatters import formatar_valor, formatar_data
 
 logger = logging.getLogger(__name__)
 
-# ==============================================================================
-# CLASSE DE PROCESSAMENTO P2
-# ==============================================================================
-
-
 class P2Processor:
     """
     Processador especializado para Decretos Padrão 2.
@@ -32,9 +27,7 @@ class P2Processor:
     """
 
     def __init__(self, gemini_model: genai.GenerativeModel):
-        """
-        Inicializa o processador com o modelo Gemini e compila os Regexes.
-        """
+
         self.model = gemini_model
         try:
             locale.setlocale(locale.LC_TIME, 'pt_BR.UTF-8')
@@ -88,7 +81,7 @@ class P2Processor:
         texto = re.sub(r'\s{2,}', ' ', texto)
         return texto.strip()
 
-    # --- Lógica de Segmentação Core (Baseada na P2_Logica) ---
+    # --- Lógica de Segmentação 
 
     def _segmentar_bloco_decreto(self, bloco: str) -> Tuple[str, str, str, List[str]]:
         """
@@ -195,7 +188,6 @@ class P2Processor:
 
         return parte_1.strip(), parte_2.strip(), parte_3.strip(), erros
 
-    # --- Integração com Gemini ---
 
     def _call_gemini(self, prompt: str, texto_concatenado: str, tentativa=1, max_tentativas=3) -> dict | None:
         if tentativa > max_tentativas:
@@ -204,7 +196,6 @@ class P2Processor:
             generation_config = genai.GenerationConfig(
                 response_mime_type="application/json")
 
-            # Limpeza básica
             texto_limpo = self._limpar_texto(texto_concatenado)
             conteudo_prompt = f"{prompt}\n\n--- TEXTO DO DECRETO (SEGMENTADO E UNIDO) ---\n{texto_limpo}"
 
@@ -220,13 +211,13 @@ class P2Processor:
             time.sleep(2)
             return self._call_gemini(prompt, texto_concatenado, tentativa + 1, max_tentativas)
 
-    # --- Método Público Principal ---
+
 
     def processar_bloco(
         self,
         bloco_tipo_2: str,
-        texto_total_ocr: str = "",  # Mantido para compatibilidade de assinatura
-        caminho_pdf_associado: str = ""  # Mantido para compatibilidade de assinatura
+        texto_total_ocr: str = "",  
+        caminho_pdf_associado: str = ""  
     ) -> Optional[Dict[str, Any]]:
         """
         Processa um bloco de texto classificado como Tipo 2.

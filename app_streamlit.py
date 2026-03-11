@@ -36,11 +36,7 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-# ==============================================================================
-# INICIALIZAÇÃO DO MODELO (cached para não recarregar a cada interação)
-# ==============================================================================
-
-@st.cache_resource
+# INICIALIZAÇÃO DO MODELO 
 def carregar_processadores():
     api_key = os.getenv("GEMINI_API_KEY")
     if not api_key:
@@ -54,10 +50,8 @@ def carregar_processadores():
     return p1, p2, p3
 
 
-# ==============================================================================
-# FUNÇÕES DE GERAÇÃO DE RELATÓRIO (lógica idêntica ao Flask)
-# ==============================================================================
 
+# FUNÇÕES DE GERAÇÃO DE RELATÓRIO 
 def gerar_quadros_html(dados_extraidos: list, erros: list) -> str:
     """
     Gera o HTML dos quadros de SUCESSO e de ERRO/ALERTA.
@@ -211,11 +205,7 @@ def gerar_quadros_dataframe(dados_extraidos: list) -> tuple:
 
     return pd.DataFrame(linhas_q1), pd.DataFrame(linhas_q2)
 
-
-# ==============================================================================
-# FUNÇÕES AUXILIARES DE MÍDIA (equivalentes às rotas /decreto_imagens/*)
-# ==============================================================================
-
+# FUNÇÕES AUXILIARES 
 def extrair_imagem_pagina(pdf_path: str, page_num: int) -> bytes | None:
     """Retorna os bytes JPEG de uma página do PDF (1-based)."""
     try:
@@ -320,9 +310,6 @@ def executar_processamento(pdf_path: str, texto_total: str):
     st.session_state["erros_processamento"] = erros
 
 
-# ==============================================================================
-# CSS CUSTOMIZADO (equivalente ao <style> do index.html)
-# ==============================================================================
 
 def carregar_css() -> None:
     """Lê assets/style.css e injeta como bloco <style> na página."""

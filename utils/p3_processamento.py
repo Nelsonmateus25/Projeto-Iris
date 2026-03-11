@@ -21,9 +21,7 @@ from utils.formatters import formatar_valor, formatar_data
 
 logger = logging.getLogger(__name__)
 
-# ==============================================================================
-# CLASSE DE PROCESSAMENTO P3
-# ==============================================================================
+
 
 
 class P3Processor:
@@ -135,7 +133,6 @@ class P3Processor:
 
         return parte_a, parte_b, erros
 
-    # --- Chamada LLM ---
 
     def _call_gemini(self, prompt: str, texto_concatenado: str, tentativa=1, max_tentativas=3) -> dict | None:
         if tentativa > max_tentativas:
@@ -157,13 +154,12 @@ class P3Processor:
             time.sleep(2)
             return self._call_gemini(prompt, texto_concatenado, tentativa + 1, max_tentativas)
 
-    # --- Método Orquestrador ---
 
     def processar_bloco(
         self,
         bloco_tipo_3: str,
-        texto_total_ocr: str = "",  # Compatibilidade
-        caminho_pdf_associado: str = ""  # Compatibilidade
+        texto_total_ocr: str = "", 
+        caminho_pdf_associado: str = ""  
     ) -> Optional[Dict[str, Any]]:
         """
         Processa um bloco Tipo 3.
