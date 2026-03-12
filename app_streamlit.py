@@ -25,7 +25,8 @@ from utils.pdf_to_txt import (
     BUCKET_NAME,
 )
 
-load_dotenv(override=True)
+#load_dotenv(override=True)
+load_dotenv()
 
 # Configura o logging uma única vez, no ponto de entrada da aplicação.
 # Todos os módulos (p1, p2, p3, pdf_to_txt) herdam essa configuração
@@ -388,20 +389,24 @@ if analisar and pdf_upload:
             if not texto_total or "[Erro Textract S3]" in texto_total:
                 st.error("Falha na extração do Textract. Verifique as permissões do bucket S3 e tente novamente.")
                 texto_total = None
-
-    if texto_total:
-        with st.spinner("Analisando decretos... Isso pode levar alguns minutos."):
-            try:
-                executar_processamento(pdf_path, texto_total)
-            except Exception as e:
-                st.error(f"Erro durante o processamento: {e}")
-                st.code(traceback.format_exc())
-    else:
-        # Remove o arquivo temporário se o processamento não foi executado
+    try:
+        if texto_total:
+            with st.spinner("Analisando decretos... Isso pode levar alguns minutos."):
+                try:
+                    executar_processamento(pdf_path, texto_total)
+                except Exception as e:
+                    logger.exception("Erro não tratado durante executar_processamento: %s", e)
+                st.error(
+                    "Ocorreu um erro inesperado durante o processamento. "
+                    "Verifique o arquivo PDF e tente novamente."
+                )
+                    
+    finally:
         try:
             os.unlink(pdf_path)
-        except Exception:
-            pass
+            logger.info("Arquivo temporário removido: %s", pdf_path)
+        except OSError:
+            logger.warning("Erro ao remover arquivo temporário: %s", pdf_path)
 
 # --- Seção 2: Resultados ---
 st.header("2. Resultados da Análise")

@@ -7,7 +7,7 @@ from collections import defaultdict
 from dotenv import load_dotenv
 from typing import List, Dict, Any, Optional
 
-load_dotenv(override=True)
+#load_dotenv(override=True)
 
 logger = logging.getLogger(__name__)
 
@@ -92,17 +92,34 @@ def extract_text_textract_s3(bucket_name: str, s3_key: str) -> str:
         return "[Erro Textract S3: Falha ao iniciar]"
 
     result: Dict[str, Any] = {}
-    while True:
+    # Limite de 100 tentativas × 3 segundos = 5 minutos máximo de espera.
+    # Sem esse limite, o loop ficaria rodando para sempre se o job AWS travasse.
+    MAX_TENTATIVAS_POLL = 100
+    tentativas_poll = 0
+
+    while tentativas_poll < MAX_TENTATIVAS_POLL:
         try:
             result = textract.get_document_text_detection(JobId=job_id)
             status = result["JobStatus"]
-            logger.info("[Textract] Status: %s", status)
+            logger.info(
+                "[Textract] Status: %s (tentativa %d/%d)",
+                status, tentativas_poll + 1, MAX_TENTATIVAS_POLL,
+            )
             if status in ["SUCCEEDED", "FAILED"]:
                 break
             time.sleep(3)
+            tentativas_poll += 1
         except Exception as e:
             logger.error("[Textract] Falha ao obter status do job: %s", e)
             return "[Erro Textract S3: Falha no get_status]"
+    else:
+        # O bloco 'else' de um 'while' só executa quando o loop termina SEM break,
+        # ou seja: esgotou as tentativas sem receber SUCCEEDED ou FAILED.
+        logger.error(
+            "[Textract] Timeout: job %s não concluiu em %d tentativas.",
+            job_id, MAX_TENTATIVAS_POLL,
+        )
+        return "[Erro Textract S3: Timeout]"
 
     if result["JobStatus"] == "SUCCEEDED":
         # Etapa 1: Coletar TODOS os blocos, tratando a paginação da API Textract
