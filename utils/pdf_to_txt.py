@@ -94,7 +94,7 @@ def extract_text_textract_s3(bucket_name: str, s3_key: str) -> str:
     result: Dict[str, Any] = {}
     # Limite de 100 tentativas × 3 segundos = 5 minutos máximo de espera.
     # Sem esse limite, o loop ficaria rodando para sempre se o job AWS travasse.
-    MAX_TENTATIVAS_POLL = 100
+    MAX_TENTATIVAS_POLL = 200
     tentativas_poll = 0
 
     while tentativas_poll < MAX_TENTATIVAS_POLL:
