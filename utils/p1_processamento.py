@@ -17,9 +17,10 @@ import time
 import locale
 import logging
 from typing import List, Optional, Set, Tuple, Dict, Any
-import fitz  
+import fitz
 import google.generativeai as genai
 from utils.formatters import formatar_valor, formatar_data
+
 logger = logging.getLogger(__name__)
 
 
@@ -32,7 +33,7 @@ class P1Processor:
     def __init__(self, gemini_model: genai.GenerativeModel):
         self.model = gemini_model
         try:
-            locale.setlocale(locale.LC_TIME, 'pt_BR.UTF-8')
+            locale.setlocale(locale.LC_TIME, "pt_BR.UTF-8")
         except locale.Error:
             logger.warning("Locale 'pt_BR.UTF-8' não encontrado. Usando locale padrão.")
 
@@ -43,8 +44,11 @@ class P1Processor:
         ### TAREFA ###
         Sua tarefa é analisar o texto de UM ÚNICO decreto e extrair as informações solicitadas em formato JSON, seguindo TODAS as regras e HIERARQUIAS rigorosamente.
 
+        ### REGRAS CRÍTICAS ###
+        - **PROIBIDO CALCULAR:** Extraia apenas valores explícitos. Se não houver valor vinculado diretamente à fonte, retorne `null`.
+        
         ### HIERARQUIA DE BUSCA DE VALORES PARA FONTES ###
-        Para determinar o `"valor"` de cada fonte de recurso (ex: "Anulação de Dotações", "Excesso de Arrecadação"), siga esta ordem de prioridade:
+        Para determinar o `"valor"` de cada fonte de recurso ( "Anulação de Dotações", "Excesso de Arrecadação", "Superávit Financeiro", "Operações de Crédito"), siga esta ordem de prioridade:
         1. **Busca (Valor Explícito no Texto):** Procure no texto do Artigo 2º por um valor monetário EXPLICITAMENTE associado ao nome da fonte (ex: "...à conta de Excesso de Arrecadação R$ 3.932.927,00...").
         2.  **Regra Final:** Se uma fonte for mencionada mas for impossível encontrar um valor explícito, o campo `"valor"` deve ser `null`. (ex: "... e Anulação parcial e/ou total da(s) seguinte(s) dotação(ões) orçamentária(s): ..." mas não houver valore vinculado a anulação desconsidere.) **NÃO FAÇA CÁLCULOS.**
 
@@ -63,7 +67,7 @@ class P1Processor:
                 Se houver mais de uma fonte de recurso estará explicito no Artigo 2º. 
 
             - `"valor"`: O valor específico da fonte, encontrado seguindo a HIERARQUIA DE BUSCA acima.
-            - `"codigos"`: Deixe vazio por enquanto.
+            - `"codigos"`: Deixe vazio.
             
         ### FORMATO DE SAÍDA ###
         {
@@ -72,49 +76,36 @@ class P1Processor:
         }
         """
 
+        # --- PADRÕES DO TESTHELPER
 
-        # --- PADRÕES DO TESTHELPER 
-
-        regex_limpo_1 = r'^[\s\t]*ANEXO\s+[I1L,aT]a?(?![a-zA-Z0-9])'
-        regex_limpo_2 = r'^[\s\t]*ANEXO\s+([IT]{2}|2|[I][\s,]*2|[I][L])(?![a-zA-Z0-9])'
+        regex_limpo_1 = r"^[\s\t]*ANEXO\s+[I1L,aT]a?(?![a-zA-Z0-9])"
+        regex_limpo_2 = r"^[\s\t]*ANEXO\s+([IT]{2}|2|[I][\s,]*2|[I][L])(?![a-zA-Z0-9])"
 
         self.PADRAO_LIMPO_ANEXO_1 = re.compile(
-            regex_limpo_1,
-            re.IGNORECASE | re.MULTILINE
+            regex_limpo_1, re.IGNORECASE | re.MULTILINE
         )
         self.PADRAO_LIMPO_ANEXO_2 = re.compile(
-            regex_limpo_2,
-            re.IGNORECASE | re.MULTILINE
+            regex_limpo_2, re.IGNORECASE | re.MULTILINE
         )
 
-        self.PADRAO_ANEXO_GENERICO = re.compile(
-            r'^[\s\t]*ANEXO\b',
-            re.MULTILINE
-        )
+        self.PADRAO_ANEXO_GENERICO = re.compile(r"^[\s\t]*ANEXO\b", re.MULTILINE)
 
         self.PADRAO_TODOS_CONHECIDOS = re.compile(
-            f"({regex_limpo_1})|({regex_limpo_2})",
-            re.IGNORECASE | re.MULTILINE
+            f"({regex_limpo_1})|({regex_limpo_2})", re.IGNORECASE | re.MULTILINE
         )
 
-        self.PADRAO_TAG_PAGINA = re.compile(
-            r'\[INÍCIO\s+PAGINA\s+\d+\]',
-            re.IGNORECASE
-        )
+        self.PADRAO_TAG_PAGINA = re.compile(r"\[INÍCIO\s+PAGINA\s+\d+\]", re.IGNORECASE)
         self.PADRAO_ITERAR_PAGINA = re.compile(
-            r'\[INÍCIO\s+PAGINA\s+(\d+)\]([\s\S]*?)(?=\[INÍCIO\s+PAGINA|\Z)',
-            re.IGNORECASE
+            r"\[INÍCIO\s+PAGINA\s+(\d+)\]([\s\S]*?)(?=\[INÍCIO\s+PAGINA|\Z)",
+            re.IGNORECASE,
         )
-        self.PADRAO_EXCESSO = re.compile(
-            r'(Exce\.\s*arrec\.)',
-            re.IGNORECASE
-        )
+        self.PADRAO_EXCESSO = re.compile(r"(Exce\.\s*arrec\.)", re.IGNORECASE)
 
         # 2. Padrão para "Interrupções Permitidas" (NÃO quebram um grupo)
         self.PADRAO_INTERRUPCAO_PERMITIDA = re.compile(
             # Corresponde a 'Anul.dotação' OU uma linha que é SÓ códigos/números
-            r'(Anul\.\s*dotação|^\s*[\d\.\s]+\s*$)',
-            re.IGNORECASE
+            r"(Anul\.\s*dotação|^\s*[\d\.\s]+\s*$)",
+            re.IGNORECASE,
         )
 
     # --- Métodos de Formatação e Chamada de API ---
@@ -125,50 +116,58 @@ class P1Processor:
         if not paginas or tamanho_lote <= 0:
             return []
         for i in range(0, len(paginas), tamanho_lote):
-            lotes.append(paginas[i:i + tamanho_lote])
+            lotes.append(paginas[i : i + tamanho_lote])
         return lotes
 
     def _post_processar_dados(self, dados_json: dict) -> dict:
         if not dados_json:
             return dados_json
-        dados_json['data'] = formatar_data(dados_json.get('data'))
-        dados_json['valor_total'] = formatar_valor(dados_json.get('valor_total'))
-        if 'fontes_detalhadas' in dados_json and isinstance(dados_json['fontes_detalhadas'], list):
-            for detalhe in dados_json['fontes_detalhadas']:
-                detalhe['valor'] = formatar_valor(detalhe.get('valor'))
+        dados_json["data"] = formatar_data(dados_json.get("data"))
+        dados_json["valor_total"] = formatar_valor(dados_json.get("valor_total"))
+        if "fontes_detalhadas" in dados_json and isinstance(
+            dados_json["fontes_detalhadas"], list
+        ):
+            for detalhe in dados_json["fontes_detalhadas"]:
+                detalhe["valor"] = formatar_valor(detalhe.get("valor"))
         return dados_json
 
     def _limpar_texto_ocr(self, texto: str) -> str:
-        texto = re.sub(r'\s{2,}', ' ', texto)
-        texto = re.sub(r'\s*\n\s*', '\n', texto)
+        texto = re.sub(r"\s{2,}", " ", texto)
+        texto = re.sub(r"\s*\n\s*", "\n", texto)
         return texto.strip()
 
-    def _call_gemini(self, prompt: str, contexto: str, imagens: Optional[List[bytes]] = None, tentativa=1, max_tentativas=3) -> dict | None:
+    def _call_gemini(
+        self,
+        prompt: str,
+        contexto: str,
+        imagens: Optional[List[bytes]] = None,
+        tentativa=1,
+        max_tentativas=3,
+    ) -> dict | None:
         if tentativa > max_tentativas:
             logger.error("Máximo de tentativas (%d) atingido.", max_tentativas)
             return None
         try:
             generation_config = genai.GenerationConfig(
-                response_mime_type="application/json")
+                response_mime_type="application/json"
+            )
 
             conteudo_prompt = []
 
             if imagens:
                 for img_bytes in imagens:
-                    conteudo_prompt.append({
-                        "inline_data": {
-                            "data": img_bytes,
-                            "mime_type": "image/jpeg"
-                        }
-                    })
+                    conteudo_prompt.append(
+                        {"inline_data": {"data": img_bytes, "mime_type": "image/jpeg"}}
+                    )
 
             contexto_limpo = self._limpar_texto_ocr(contexto)
-            texto_completo = prompt + '\n\n--- CONTEÚDO PARA ANÁLISE ---\n' + contexto_limpo
+            texto_completo = (
+                prompt + "\n\n--- CONTEÚDO PARA ANÁLISE ---\n" + contexto_limpo
+            )
             conteudo_prompt.append(texto_completo)
 
             resposta_objeto = self.model.generate_content(
-                conteudo_prompt,
-                generation_config=generation_config
+                conteudo_prompt, generation_config=generation_config
             )
 
             metadata = resposta_objeto.usage_metadata
@@ -181,9 +180,13 @@ class P1Processor:
             return json.loads(resposta_objeto.text)
 
         except Exception as e:
-            logger.error("Erro na chamada da API ou JSON (Tentativa %d): %s", tentativa, e)
+            logger.error(
+                "Erro na chamada da API ou JSON (Tentativa %d): %s", tentativa, e
+            )
             time.sleep(5)
-            return self._call_gemini(prompt, contexto, imagens, tentativa + 1, max_tentativas)
+            return self._call_gemini(
+                prompt, contexto, imagens, tentativa + 1, max_tentativas
+            )
 
     # --- Métodos de Segmentação P1 (Lógica de segmentation.py) ---
 
@@ -236,8 +239,10 @@ class P1Processor:
 
         return grupo_count
 
-    def _ajustar_corte_por_pagina(self, bloco_inteiro: str, indice_corte: int) -> Tuple[str, str]:
-        """ (Lógica do TestHelper) """
+    def _ajustar_corte_por_pagina(
+        self, bloco_inteiro: str, indice_corte: int
+    ) -> Tuple[str, str]:
+        """(Lógica do TestHelper)"""
         indice_tag_anterior = 0
         for match_tag in self.PADRAO_TAG_PAGINA.finditer(bloco_inteiro[:indice_corte]):
             indice_tag_anterior = match_tag.start()
@@ -245,7 +250,9 @@ class P1Processor:
         bloco_2 = bloco_inteiro[indice_tag_anterior:].strip()
         return bloco_1, bloco_2
 
-    def _segmentar_bloco_decreto(self, bloco_decreto: str) -> Tuple[Optional[str], Optional[str], Optional[str]]:
+    def _segmentar_bloco_decreto(
+        self, bloco_decreto: str
+    ) -> Tuple[Optional[str], Optional[str], Optional[str]]:
         """
         (Lógica do TestHelper: VETO DE AMBIGUIDADE + LÓGICA 100% LIMPA)
         """
@@ -262,7 +269,7 @@ class P1Processor:
             # Se o Anexo II existir, SÓ NOS PREOCUPAMOS com a ambiguidade
             # ANTES e ATÉ O FIM da tag do Anexo II.
             # O "ANEXO M" que vier depois será ignorado pelo veto.
-            texto_para_veto = bloco_decreto[:match_anexo_2_limite.end()]
+            texto_para_veto = bloco_decreto[: match_anexo_2_limite.end()]
 
         # (O restante da lógica de veto original agora roda no 'texto_para_veto',
         # que é um texto "truncado" e mais seguro)
@@ -326,8 +333,7 @@ class P1Processor:
             return []
 
         paginas_validas: List[int] = []
-        matches_pagina = list(
-            self.PADRAO_ITERAR_PAGINA.finditer(bloco_anexo_1))
+        matches_pagina = list(self.PADRAO_ITERAR_PAGINA.finditer(bloco_anexo_1))
 
         for i, match in enumerate(matches_pagina):
             try:
@@ -348,7 +354,7 @@ class P1Processor:
 
             # 3. LÓGICA DE BUFFER (SE O TESTE 2 FALHOU)
             if i + 1 < len(matches_pagina):
-                proximo_match = matches_pagina[i+1]
+                proximo_match = matches_pagina[i + 1]
                 try:
                     conteudo_proxima_pagina = proximo_match.group(2)
                 except IndexError:
@@ -366,14 +372,16 @@ class P1Processor:
 
     # --- Métodos de Extração de Mídia (PyMuPDF) ---
 
-    def _extract_text_from_pages(self, full_ocr_text: str, page_numbers: List[int]) -> str:
+    def _extract_text_from_pages(
+        self, full_ocr_text: str, page_numbers: List[int]
+    ) -> str:
         """Extrai o conteúdo de texto do OCR apenas para as páginas especificadas."""
         if not page_numbers:
             return ""
         page_numbers.sort()
         padrao_pagina_e_conteudo = re.compile(
-            r'\[INÍCIO\s+PAGINA\s+(\d+)\]([\s\S]*?)(?=\[INÍCIO\s+PAGINA|\Z)',
-            re.IGNORECASE
+            r"\[INÍCIO\s+PAGINA\s+(\d+)\]([\s\S]*?)(?=\[INÍCIO\s+PAGINA|\Z)",
+            re.IGNORECASE,
         )
         texto_filtrado = []
         matches = padrao_pagina_e_conteudo.finditer(full_ocr_text)
@@ -386,7 +394,9 @@ class P1Processor:
                 texto_filtrado.append(match.group(0))
         return "\n".join(texto_filtrado)
 
-    def _extrair_paginas_em_imagem(self, caminho_pdf: str, paginas: List[int]) -> List[Dict[str, Any]]:
+    def _extrair_paginas_em_imagem(
+        self, caminho_pdf: str, paginas: List[int]
+    ) -> List[Dict[str, Any]]:
         """
         Extrai as páginas de um PDF em formato de imagem (bytes) usando PyMuPDF (fitz).
         """
@@ -404,14 +414,15 @@ class P1Processor:
             for indice, numero_pagina in zip(indices_paginas, paginas):
                 if indice < len(documento):
                     page = documento.load_page(indice)
-                    pix = page.get_pixmap(matrix=fitz.Matrix(150/72, 150/72))
+                    pix = page.get_pixmap(matrix=fitz.Matrix(150 / 72, 150 / 72))
                     image_bytes = pix.tobytes("jpeg")
-                    imagens_paginas.append({
-                        'page_num': numero_pagina,
-                        'image_bytes': image_bytes
-                    })
+                    imagens_paginas.append(
+                        {"page_num": numero_pagina, "image_bytes": image_bytes}
+                    )
                 else:
-                    logger.warning("[PyMuPDF] Página %d fora do limite do PDF.", numero_pagina)
+                    logger.warning(
+                        "[PyMuPDF] Página %d fora do limite do PDF.", numero_pagina
+                    )
             documento.close()
         except Exception as e:
             logger.error("[PyMuPDF] Falha ao extrair imagens do PDF: %s", e)
@@ -419,18 +430,13 @@ class P1Processor:
 
         return imagens_paginas
 
-
-
     def processar_bloco(
-        self,
-        bloco_tipo_1: str,
-        texto_total_ocr: str,
-        caminho_pdf_associado: str
+        self, bloco_tipo_1: str, texto_total_ocr: str, caminho_pdf_associado: str
     ) -> Optional[Dict[str, Any]]:
         """
         Método principal da classe.
         Processa UM ÚNICO bloco de texto (já classificado como Tipo 1).
-        Extrai informações textuais 
+        Extrai informações textuais
         """
         logger.info("--- Processando Bloco P1 ---")
 
@@ -440,23 +446,34 @@ class P1Processor:
         )
 
         # 2. VERIFICAÇÃO DO VETO (LÓGICA INTEGRADA)
-        if bloco_inicio_ajustado and bloco_inicio_ajustado.startswith("[ALERTA_AMBIGUIDADE]"):
+        if bloco_inicio_ajustado and bloco_inicio_ajustado.startswith(
+            "[ALERTA_AMBIGUIDADE]"
+        ):
             logger.warning(bloco_inicio_ajustado)
             logger.warning("--- Bloco P1 VETADO. ---")
             return {"ERRO": "Veto de Ambiguidade", "detalhe": bloco_inicio_ajustado}
 
         if not bloco_inicio_ajustado:
             logger.error("[P1] Falha na segmentação. Bloco de início está vazio.")
-            return {"ERRO": "Falha na Segmentação", "detalhe": "Bloco de início (corpo) não encontrado."}
+            return {
+                "ERRO": "Falha na Segmentação",
+                "detalhe": "Bloco de início (corpo) não encontrado.",
+            }
 
         # 3. Extração do Corpo (Etapa 1 - Gemini) - Textual
-        logger.info("Etapa 1: Executando extração primária do Corpo do Decreto (Textual)...")
+        logger.info(
+            "Etapa 1: Executando extração primária do Corpo do Decreto (Textual)..."
+        )
         dados_iniciais = self._call_gemini(
-            self.PROMPT_ANALISE_Pattern_1, bloco_inicio_ajustado)
+            self.PROMPT_ANALISE_Pattern_1, bloco_inicio_ajustado
+        )
 
         if not dados_iniciais:
             logger.error("[P1] Falha na extração primária. Pulando.")
-            return {"ERRO": "Falha na API Gemini", "detalhe": "A extração textual primária falhou ou retornou vazio."}
+            return {
+                "ERRO": "Falha na API Gemini",
+                "detalhe": "A extração textual primária falhou ou retornou vazio.",
+            }
 
         # 4. (Desativado) Extração Multimodal de códigos de Excesso de Arrecadação.
         # A partir de agora, não extraímos mais códigos; apenas utilizamos as

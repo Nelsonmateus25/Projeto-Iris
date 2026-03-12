@@ -40,8 +40,12 @@ class P2Processor:
         ### TAREFA ###
         Sua tarefa é analisar o texto de UM ÚNICO decreto e extrair as informações solicitadas em formato JSON, seguindo TODAS as regras e HIERARQUIAS rigorosamente.
 
+
+        ### REGRAS CRÍTICAS ###
+        - **PROIBIDO CALCULAR:** Extraia apenas valores explícitos. Se não houver valor vinculado diretamente à fonte, retorne `null`.
+
         ### HIERARQUIA DE BUSCA DE VALORES PARA FONTES ###
-        Para determinar o `"valor"` de cada fonte de recurso (ex: "Anulação de Dotações", "Excesso de Arrecadação"), siga esta ordem de prioridade:
+        Para determinar o `"valor"` de cada fonte de recurso ( "Anulação de Dotações", "Excesso de Arrecadação", "Superávit Financeiro", "Operações de Crédito"), siga esta ordem de prioridade:
         1. **Busca (Valor Explícito no Texto):** Procure no texto do Artigo 2º por um valor monetário EXPLICITAMENTE associado ao nome da fonte (ex: "...à conta de Excesso de Arrecadação R$ 3.932.927,00...").
         2.**Busca (Descrição Final):** Busque no trecho antes do Artigo 3º por especificação dos valores.
         3.  **Regra Final:** Se uma fonte for mencionada mas for impossível encontrar um valor explícito, o campo `"valor"` deve ser `null`. (ex: "... e Anulação parcial e/ou total da(s) seguinte(s) dotação(ões) orçamentária(s): ..." mas não houver valore vinculado a anulação desconsidere.) **NÃO FAÇA CÁLCULOS.**
@@ -54,13 +58,18 @@ class P2Processor:
 
         - `"fontes_detalhadas"`: Uma lista de objetos. Crie um objeto apenas para as fontes de recurso do Artigo 2º que possuam um valor monetário (R$) explicitamente associado no texto. Ignore fontes que são apenas mencionadas de forma genérica sem detalhamento financeiro.
             - `"fonte"`: O nome da fonte de recursos, que pode ser "Superávit Financeiro", "Excesso de Arrecadação", "Anulação de Dotações" e/ou "Operações de Crédito". (Normalize "Anulações..." para "Anulação de Dotações").
+            Para determinar a fonte de recurso verifique o Artigo 2º. 
+                - exemplo: "... decorrerão de anulações parciais das dotações orçamentárias ..."; ** FONTE: "Anulação de Dotações" **
+                - exemplo: "... decorrerão de excesso de arrecadação"; ** FONTE: "Excesso de Arrecadação" **
+                - (exemplo: "... decorrerão do superávit financeiro apurado"; ** FONTE: "Superávit Financeiro" ** 
+                Se houver mais de uma fonte de recurso estará explicito no Artigo 2º. 
             - `"valor"`: O valor específico da fonte, encontrado seguindo a HIERARQUIA DE BUSCA acima.
-            - `"codigos"`: Deixe vazio por enquanto.
+            - `"codigos"`: Deixe vazio.
             
         ### FORMATO DE SAÍDA ###
         {
           "numero": "string", "data": "string", "valor_total": "string", "tipo_credito": "string",
-          "fontes_detalhadas": [{"fonte": "string", "valor": "string ou null", "codigos": ["XXXXXXXXXX"]}]
+          "fontes_detalhadas": [{"fonte": "string", "valor": "string ou null", "codigos": []}]
         }
         """
 

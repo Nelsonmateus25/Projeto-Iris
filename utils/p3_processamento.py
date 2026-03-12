@@ -54,6 +54,9 @@ class P3Processor:
         ### TAREFA ###
         Sua tarefa é analisar o texto de UM ÚNICO decreto e extrair as informações solicitadas em formato JSON, seguindo TODAS as regras e HIERARQUIAS rigorosamente.
 
+        ### REGRAS CRÍTICAS ###
+        - **PROIBIDO CALCULAR:** Extraia apenas valores explícitos. Se não houver valor vinculado diretamente à fonte, retorne `null`.
+
         ### HIERARQUIA DE BUSCA PARA FONTES ###
         Para determinar a fonte de recurso verifique o Artigo 2º. 
         - exemplo: "... decorrerão de anulações parciais das dotações orçamentárias ..."; ** FONTE: "Anulação de Dotações" **
@@ -67,20 +70,21 @@ class P3Processor:
         - `"valor_total"`: O valor total do Artigo 1º.
         - `"tipo_credito"`: O tipo de crédito adicional do Artigo 1º que pode ser "Suplementar", "Especial" ou "Extraordinário". (Normalize para conter "Créditos" e o tipo: exemplo: "Créditos Suplementares")
         
-        ### INSTRUÇÕES PARA CÓDIGOS ###
-        1. Busque o(s) código(s) no corpo do decreto que começa com "CONSIDERANDO".
-        2. Caso não encontre no corpo do decreto busque o(s) código(s) no ANEXO III. 
-        3. Caso o código tenha mais de 10 dígitos tire 1 ou 2 zeros do final. (ex: "1.604.0000.00.00" vira "1604000000")
 
         - `"fontes_detalhadas"`: Uma lista de objetos. Crie um objeto apenas para as fontes de recurso do Artigo 2º que possuam um valor monetário (R$) explicitamente associado no texto. Ignore fontes que são apenas mencionadas de forma genérica sem detalhamento financeiro.
             - `"fonte"`: O nome da fonte de recursos, que pode ser "Superávit Financeiro", "Excesso de Arrecadação", "Anulação de Dotações" e/ou "Operações de Crédito". (Normalize "Anulações..." para "Anulação de Dotações").
+            Para determinar a fonte de recurso verifique o Artigo 2º. 
+                - exemplo: "... decorrerão de anulações parciais das dotações orçamentárias ..."; ** FONTE: "Anulação de Dotações" **
+                - exemplo: "... decorrerão de excesso de arrecadação"; ** FONTE: "Excesso de Arrecadação" **
+                - (exemplo: "... decorrerão do superávit financeiro apurado"; ** FONTE: "Superávit Financeiro" ** 
+                Se houver mais de uma fonte de recurso estará explicito no Artigo 2º. 
             - `"valor"`: O valor específico da fonte, encontrado seguindo a HIERARQUIA DE BUSCA acima.
-            - `"codigos"`: **CASO a fonte de recurso seja "Excesso de Arrecadação"** extraia os códigos de excesso do corpo do decreto (ex: "CONSIDERANDO ... recursos oriundos do excesso de arrecadação da fonte de Recursos: 1.604.0000.00.00 - Transferências ...")
+            - `"codigos"`: Deixe vazio.
                
         ### FORMATO DE SAÍDA ###
         {
           "numero": "string", "data": "string", "valor_total": "string", "tipo_credito": "string",
-          "fontes_detalhadas": [{"fonte": "string", "valor": "string ou null", "codigos": ["XXXXXXXXXX"]}]
+          "fontes_detalhadas": [{"fonte": "string", "valor": "string ou null", "codigos": []}]
         }
         """
 
