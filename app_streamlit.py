@@ -348,6 +348,17 @@ with col2:
 analisar = st.button("Analisar", type="primary", disabled=not pdf_upload)
 
 if analisar and pdf_upload:
+    # Apaga o arquivo temporário da análise ANTERIOR antes de criar um novo.
+    # Estratégia: não apagamos o arquivo ao terminar (a galeria precisa dele),
+    # mas apagamos no início da próxima análise, quando ele deixa de ser necessário.
+    pdf_path_anterior = st.session_state.get("decretos_meta", {}).get("pdf_path", "")
+    if pdf_path_anterior and os.path.exists(pdf_path_anterior):
+        try:
+            os.unlink(pdf_path_anterior)
+            logger.info("Arquivo temporário anterior removido: %s", pdf_path_anterior)
+        except OSError:
+            logger.warning("Não foi possível remover arquivo temporário anterior: %s", pdf_path_anterior)
+
     # UUID garante nome único mesmo se dois usuários enviarem o mesmo arquivo ao mesmo tempo.
     # delete=False mantém o arquivo no disco após o close() — necessário pois outros
     # módulos (PyMuPDF, processadores) precisam acessar o arquivo pelo caminho depois.
@@ -389,24 +400,26 @@ if analisar and pdf_upload:
             if not texto_total or "[Erro Textract S3]" in texto_total:
                 st.error("Falha na extração do Textract. Verifique as permissões do bucket S3 e tente novamente.")
                 texto_total = None
-    try:
-        if texto_total:
-            with st.spinner("Analisando decretos... Isso pode levar alguns minutos."):
-                try:
-                    executar_processamento(pdf_path, texto_total)
-                except Exception as e:
-                    logger.exception("Erro não tratado durante executar_processamento: %s", e)
+
+    if texto_total:
+        with st.spinner("Analisando decretos... Isso pode levar alguns minutos."):
+            try:
+                executar_processamento(pdf_path, texto_total)
+            except Exception as e:
+                logger.exception("Erro não tratado durante executar_processamento: %s", e)
                 st.error(
                     "Ocorreu um erro inesperado durante o processamento. "
-                    "Verifique o arquivo PDF e tente novamente."
+                    "Verifique o arquivo PDF e tente novamente. "
+                    "Se o problema persistir, contate o administrador."
                 )
-                    
-    finally:
+    else:
+        # Se não houve texto para processar, o arquivo temporário não será mais
+        # necessário (não há galeria para exibir), então pode ser removido agora.
         try:
             os.unlink(pdf_path)
-            logger.info("Arquivo temporário removido: %s", pdf_path)
+            logger.info("Arquivo temporário removido (sem processamento): %s", pdf_path)
         except OSError:
-            logger.warning("Erro ao remover arquivo temporário: %s", pdf_path)
+            logger.warning("Não foi possível remover arquivo temporário: %s", pdf_path)
 
 # --- Seção 2: Resultados ---
 st.header("2. Resultados da Análise")
