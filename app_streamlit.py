@@ -341,8 +341,9 @@ with col1:
     pdf_upload = st.file_uploader("Arquivo PDF Original (.pdf) *obrigatório", type=["pdf"])
 with col2:
     txt_upload = st.file_uploader(
-        "",
+        "Arquivo TXT (opcional — se não enviado, o texto será gerado via Amazon Textract)",
         type=["txt"],
+        label_visibility="collapsed",
     )
 
 analisar = st.button("Analisar", type="primary", disabled=not pdf_upload)
