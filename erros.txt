@@ -1,0 +1,228 @@
+Auditoria Completa — Projeto Iris
+CRÍTICOS — Causam crash, falha de deploy ou vulnerabilidade de segurança
+C1 — XSS em criar_linha_html (app_streamlit.py, linha 63)
+O que é: XSS (Cross-Site Scripting) significa que dados de uma fonte externa são inseridos diretamente no HTML sem "limpeza".
+
+O problema:
+
+
+VS
+Lines 57-65
+def criar_linha_html(items):
+    safe_items = [str(item) if item is not None else '' for item in items]
+    return "<tr>" + "".join(f"<td>{item}</td>" for item in safe_items) + "</tr>"
+O nome safe_items é enganoso — a lista não foi higienizada. Se o Gemini retornar um valor como <b>teste</b>, ele vai renderizar como HTML em negrito. Se retornar <script>alert(1)</script>, esse código executa no navegador.
+
+Os campos detalhe nas linhas 100 e 116 fazem escape manual parcial (só < e >), mas faltam &, ", ' — o módulo html.escape() do Python faz isso corretamente.
+
+Impacto: Segurança. Dados da IA são injetados diretamente no HTML renderizado pelo Streamlit.
+
+C2 — requirements.txt com versão errada do PyMuPDF
+O que é: O requirements.txt especifica uma versão que já foi comprovada como quebrada.
+
+
+VS
+Lines 1-7
+streamlit==1.32.0
+...
+PyMuPDF==1.26.0
+A versão 1.26.0 tinha o libmupdf.dylib ausente, causando o ImportError que acabamos de corrigir. Ao fazer push para o GitHub e o Streamlit Cloud instalar as dependências, ele vai instalar 1.26.0 novamente e o erro voltará.
+
+Impacto: Deploy quebrado imediatamente no Streamlit Cloud.
+
+C3 — extrair_imagem_pagina abre e fecha o PDF em cada iteração (app_streamlit.py, linha 213)
+O que é: Uma operação cara (abrir um arquivo grande) é repetida dentro de um loop.
+
+
+VS
+Lines 496-511
+for page_num in paginas:
+    img_bytes = extrair_imagem_pagina(pdf_path_salvo, page_num)
+E dentro de extrair_imagem_pagina:
+
+
+VS
+Lines 212-225
+def extrair_imagem_pagina(pdf_path: str, page_num: int) -> bytes | None:
+    try:
+        doc = fitz.open(pdf_path)   # ← ABRE o PDF inteiro
+        ...
+        doc.close()                  # ← FECHA o PDF
+        return img_bytes
+Para um decreto com 15 páginas de Excesso de Arrecadação, o PDF é aberto e fechado 15 vezes. O sistema operacional tem limite de arquivos abertos simultâneos e cada abertura lê o arquivo inteiro do disco.
+
+Impacto: Lentidão severa na galeria de anexos. Risco de erro too many open files em PDFs grandes.
+
+MÉDIOS — Más práticas que causam desperdício, risco futuro ou manutenção difícil
+M1 — carregar_processadores() sem cache (recria objetos a cada análise)
+
+VS
+Lines 250-255
+def executar_processamento(pdf_path: str, texto_total: str):
+    p1_processor, p2_processor, p3_processor = carregar_processadores()
+E carregar_processadores faz:
+
+
+VS
+Lines 41-51
+def carregar_processadores():
+    api_key = os.getenv("GEMINI_API_KEY")
+    genai.configure(api_key=api_key)
+    model = genai.GenerativeModel(model_name)
+    p1 = P1Processor(model)  # compila todos os regex do P1
+    p2 = P2Processor(model)  # compila todos os regex do P2
+    p3 = P3Processor(model)  # compila todos os regex do P3
+    return p1, p2, p3
+Cada clique em "Analisar" reconstrói os 3 processadores com todos os regex compilados e reconfigura a API do Gemini. O decorator @st.cache_resource existe exatamente para evitar isso.
+
+Impacto: Processamento desnecessariamente mais lento a cada análise.
+
+M2 — boto3.client() criado em cada chamada de função (pdf_to_txt.py)
+
+VS
+Lines 36-36
+    s3 = boto3.client("s3", region_name=AWS_REGION)
+
+VS
+Lines 58-58
+    s3 = boto3.client("s3", region_name=AWS_REGION)
+
+VS
+Lines 82-82
+    textract = boto3.client("textract", region_name=AWS_REGION)
+Cada cliente boto3 criado faz uma chamada de rede para descobrir as credenciais e a região. Criar um novo a cada chamada é desperdício de conexões.
+
+Impacto: Latência extra desnecessária a cada upload/download S3 e cada chamada Textract.
+
+M3 — Recursão para retentativas em _call_gemini (P1, P2, P3)
+
+VS
+Lines 182-189
+        except Exception as e:
+            logger.error(
+                "Erro na chamada da API ou JSON (Tentativa %d): %s", tentativa, e
+            )
+            time.sleep(5)
+            return self._call_gemini(
+                prompt, contexto, imagens, tentativa + 1, max_tentativas
+            )
+Retentativas implementadas como chamada recursiva. Com max_tentativas=3, a profundidade é pequena e não causa stack overflow, mas é uma prática ruim. Se alguém mudar max_tentativas para 100, o programa crasha com RecursionError. O padrão correto é um for loop.
+
+Impacto: Risco latente, má prática e difícil de depurar.
+
+M4 — Código morto: várias funções nunca chamadas
+Em processamento_txt.py, as funções abaixo são definidas mas não são importadas em nenhum arquivo da aplicação:
+
+extrair_blocos_decreto() (linha 23) — só extrair_blocos_decreto_com_paginas é usada
+classificar_blocos() (linha 150) — identificar_padrao_global a substituiu
+contar_ocorrencias_vigencia() (linha 293)
+Em p1_processamento.py:
+
+_criar_lotes() (linha 113) — definida mas nunca chamada
+_extrair_paginas_em_imagem() (linha 397) — definida mas nunca chamada (a galeria usa a função em app_streamlit.py)
+Em pdf_to_txt.py:
+
+processar_pdf_s3() (linha 167) — só usada no bloco __main__ de teste, não pela aplicação
+Impacto: Código confuso, difícil de manter. Quem ler não sabe o que está ativo.
+
+M5 — Comentário desatualizado em pdf_to_txt.py (linha 95)
+
+VS
+Lines 94-97
+    # Limite de 100 tentativas × 3 segundos = 5 minutos máximo de espera.
+    # Sem esse limite, o loop ficaria rodando para sempre se o job AWS travasse.
+    MAX_TENTATIVAS_POLL = 200
+O comentário diz 100 tentativas mas o valor é 200 (10 minutos). Quem ler o comentário vai pensar que o timeout é 5 minutos, quando na verdade é 10.
+
+Impacto: Documentação enganosa.
+
+M6 — identificar_padrao_global dispara P2 com apenas 1 ocorrência de "REDU." (processamento_txt.py, linha 280)
+
+VS
+Lines 280-281
+    if tem_titulo_p2 or tem_rodape_p2 or contagem_redu >= 1:
+        return "P2"
+Uma única palavra "REDU." em qualquer lugar do documento força o processador P2 para todos os decretos do arquivo. Se um decreto P1 mencionar acidentalmente "REDU." (por erro de OCR, por exemplo), o arquivo inteiro será processado errado.
+
+O comentário na linha 274 reconhece o problema: "Evita falso positivo se aparecer só uma vez" — mas o threshold continua em >= 1, não em >= 2.
+
+Impacto: Classificação incorreta do tipo de decreto, gerando extrações erradas.
+
+LEVES — Qualidade de código, estilo e boas práticas
+L1 — Label vazio no upload do TXT (app_streamlit.py, linha 344)
+
+VS
+Lines 343-346
+    txt_upload = st.file_uploader(
+        "",
+        type=["txt"],
+    )
+Label vazio ("") quebra acessibilidade (leitores de tela) e deixa o usuário sem saber o que é o campo. Deveria ser algo como "Arquivo TXT (opcional — se não enviado, será gerado via Textract)".
+
+L2 — .write() depreciado no PyMuPDF (app_streamlit.py, linha 238)
+
+VS
+Lines 238-238
+        pdf_bytes = doc_novo.write()
+O método .write() foi depreciado no PyMuPDF. O substituto correto é .tobytes(). Funciona hoje, mas pode parar em versões futuras.
+
+L3 — Import morto em pdf_to_txt.py
+
+VS
+Lines 7-7
+from dotenv import load_dotenv
+load_dotenv é importada mas nunca chamada (a chamada está comentada na linha 10). Import não usado gera warning no linter e confunde quem lê.
+
+L4 — locale.Error silencioso em P2 e P3
+
+VS
+Lines 33-36
+        try:
+            locale.setlocale(locale.LC_TIME, 'pt_BR.UTF-8')
+        except locale.Error:
+            pass
+O P1 loga um logger.warning() quando o locale falha, mas o P2 e o P3 ignoram silenciosamente com pass. Em ambientes onde o locale não está configurado, as datas podem ser formatadas em inglês sem nenhum aviso no log.
+
+L5 — google-generativeai muito desatualizado (requirements.txt)
+
+VS
+Lines 3-3
+google-generativeai==0.8.6
+A biblioteca lançou a versão 1.x com mudanças na API. A versão 0.8.6 é de 2024. Não vai quebrar hoje, mas em novos deploys pode haver incompatibilidades com outros pacotes.
+
+L6 — Lógica duplicada entre gerar_quadros_html e gerar_quadros_dataframe
+Ambas as funções percorrem dados_extraidos com a mesma lógica de agregar fontes:
+
+
+VS
+Lines 135-139
+            fontes_detalhadas = dado.get("fontes_detalhadas", [])
+            if not isinstance(fontes_detalhadas, list):
+                fontes_detalhadas = []
+            fontes_lista = [d.get("fonte") for d in fontes_detalhadas if d.get("fonte")]
+            fontes_agregadas = ", ".join(fontes_lista) if fontes_lista else "N/A"
+Essa lógica aparece identicamente em duas funções. Se um dia precisar mudar (ex: separar fontes por ; em vez de ,), precisa mudar em dois lugares.
+
+L7 — Falta arquivo .env.example
+O projeto usa variáveis de ambiente (GEMINI_API_KEY, AWS_REGION, BUCKET_NAME, AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY), mas não há um .env.example mostrando quais variáveis são necessárias. Qualquer pessoa clonando o repositório não saberá o que precisa configurar.
+
+Resumo Visual
+#	Tipo	Arquivo	Problema	Impacto
+C1	CRÍTICO	app_streamlit.py	XSS em criar_linha_html	Segurança
+C2	CRÍTICO	requirements.txt	PyMuPDF versão errada	Deploy quebrado
+C3	CRÍTICO	app_streamlit.py	PDF aberto/fechado a cada página	Crash / lentidão
+M1	MÉDIO	app_streamlit.py	carregar_processadores sem cache	Lentidão
+M2	MÉDIO	pdf_to_txt.py	boto3.client recriado sempre	Latência extra
+M3	MÉDIO	P1/P2/P3	Recursão em retentativas	Risco de crash
+M4	MÉDIO	Vários	Funções mortas (dead code)	Manutenção
+M5	MÉDIO	pdf_to_txt.py	Comentário desatualizado (100 vs 200)	Documentação falsa
+M6	MÉDIO	processamento_txt.py	P2 com threshold >= 1 para REDU	Classificação errada
+L1	LEVE	app_streamlit.py	Label vazio no TXT upload	Acessibilidade
+L2	LEVE	app_streamlit.py	.write() depreciado	Compatibilidade futura
+L3	LEVE	pdf_to_txt.py	Import morto load_dotenv	Lint warning
+L4	LEVE	P2/P3	locale.Error silencioso	Debug difícil
+L5	LEVE	requirements.txt	google-generativeai desatualizado	Compatibilidade
+L6	LEVE	app_streamlit.py	Lógica duplicada nos quadros	Manutenção
+L7	LEVE	Raiz	Sem .env.example	Onboarding
+Quer que eu corrija algum desses itens agora?
+
