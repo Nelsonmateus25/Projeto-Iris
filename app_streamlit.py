@@ -341,7 +341,6 @@ with col1:
     st.caption("Arquivo PDF Original (.pdf) — obrigatório")
     pdf_upload = st.file_uploader("PDF obrigatório", type=["pdf"], label_visibility="collapsed")
 with col2:
-    st.caption("Arquivo TXT (opcional — gerado automaticamente via Textract se não enviado)")
     txt_upload = st.file_uploader("TXT opcional", type=["txt"], label_visibility="collapsed")
 
 analisar = st.button("Analisar", type="primary", disabled=not pdf_upload)
