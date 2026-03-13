@@ -338,13 +338,11 @@ st.write("Envie o PDF do decreto")
 
 col1, col2 = st.columns(2)
 with col1:
-    pdf_upload = st.file_uploader("Arquivo PDF Original (.pdf) *obrigatório", type=["pdf"])
+    st.caption("Arquivo PDF Original (.pdf) — obrigatório")
+    pdf_upload = st.file_uploader("PDF obrigatório", type=["pdf"], label_visibility="collapsed")
 with col2:
-    txt_upload = st.file_uploader(
-        "Arquivo TXT (opcional — se não enviado, o texto será gerado via Amazon Textract)",
-        type=["txt"],
-        label_visibility="collapsed",
-    )
+    st.caption("&nbsp;", unsafe_allow_html=True)
+    txt_upload = st.file_uploader("TXT opcional", type=["txt"], label_visibility="collapsed")
 
 analisar = st.button("Analisar", type="primary", disabled=not pdf_upload)
 
@@ -469,7 +467,7 @@ else:
         meta = st.session_state.get("decretos_meta", {})
         pdf_path_salvo = meta.get("pdf_path", "")
 
-        for dado in decretos_excesso:
+        for idx_excesso, dado in enumerate(decretos_excesso):
             numero = dado.get("numero", "Decreto")
             paginas = dado.get("_pdf_pages", [])
             label_expander = f"Ver anexos — Decreto {numero} ({len(paginas)} página(s))"
@@ -489,7 +487,7 @@ else:
                             data=pdf_paginas,
                             file_name=nome_pdf,
                             mime="application/pdf",
-                            key=f"dl_pdf_{numero}",
+                            key=f"dl_pdf_{idx_excesso}_{numero}",
                         )
 
                     # Galeria de imagens — ícone quadrado clicável, páginas abrem verticalmente
